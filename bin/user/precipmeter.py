@@ -40,6 +40,11 @@ import configobj
 import time
 import copy
 import json
+import select
+import socket
+import math
+import sqlite3
+import os.path
 
 # deal with differences between python 2 and python 3
 try:
@@ -104,6 +109,10 @@ ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
 ACCUM_LAST = { 'extractor':'last' }
 
+for _,ii in weewx.units.std_groups.items():
+    ii.setdefault('group_wmo_ww','byte')
+    ii.setdefault('group_wmo_wawa','byte')
+
 # Ott Parsivel 2 
 PARSIVEL = {
   #Nr,Beschreibung,Stellen,Form,Größe,Einheit,Gruppe
@@ -122,8 +131,8 @@ PARSIVEL = {
   (20,'Sensorzeit',8,'00:00:00',None,'string',None),
   (21,'Sensordatum',10,'00.00.0000',None,'string',None),
   # readings: present weather code
-  ( 3,'Wettercode nach SYNOP wawa Tabelle 4680',2,'00','wawa','byte','group_data'),
-  ( 4,'Wettercode nach SYNOP ww Tabelle 4677',2,'00','ww','byte','group_data'),
+  ( 3,'Wettercode nach SYNOP wawa Tabelle 4680',2,'00','wawa','byte','group_wmo_wawa'),
+  ( 4,'Wettercode nach SYNOP ww Tabelle 4677',2,'00','ww','byte','group_wmo_ww'),
   ( 5,"Wettercode METAR/SPECI w'w' Tabelle 4678",5,'+RASN','METAR','string',None),
   ( 6,'Wettercode nach NWS Code',4,'RLS+','NWS','string',None),
   # readings 32 bit
@@ -155,8 +164,6 @@ PARSIVEL = {
   (91,'Feld v(d)',223,'00.000S',None,'meter_per_second',None),
   (93,'Rohdaten',4095,'000S',None,None,None)
 }
-PARSIVEL_WAWA = 3
-PARSIVEL_WW = 4
 
 ##############################################################################
 #    Database schema                                                         #
@@ -197,15 +204,114 @@ class PrecipThread(threading.Thread):
         
         self.data_queue = data_queue
         self.query_interval = query_interval
+
+        self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
+        self.db_conn = None
+        
+        # list of present weather codes of the last hour, initialized
+        # by the contents of the json file saved at thread stop
         self.presentweather_list = []
+        self.next_presentweather_error = 0
+        try:
+            with open(self.db_fn+'.json','rt') as file:
+                self.presentweather_list = json.load(file)
+        except FileNotFoundError:
+            pass
+        
+        self.file = None
+        self.socket = None
+        # udp tcp restful usb none
+        self.connection_type = conf_dict.get('type','none').lower()
+        host = conf_dict.get('host')
+        if host and self.connection_type in ('udp','tcp'): 
+            host = socket.gethostbyname(host)
+        self.host = host
+        self.port = conf_dict.get('port')
         
         self.running = True
+        
+        if self.connection_type=='udp':
+            # The device sends data by UDP.
+            if self.port:
+                loginf("thread '%s': UDP connection %s:%s" % (self.name,self.host,self.prt))
+            else:
+                logerr("thread '%s': UDP configuration error" % self.name)
+        elif self.connection_type=='tcp':
+            # The device accepts TCP connections.
+            if self.host and self.port:
+                loginf("thread '%s': TCP connection to %s:%s" % (self.name,self.host,self.port))
+            else:
+                logerr("thread '%s': missing host and/or port for TCP connection" % self.name)
+        elif self.connection_type in ('http','https','restful'):
+            # The device has a restful interface.
+            if self.host:
+                loginf("thread '%s': HTTP(S) connection to %s" % (self.name,self.host))
+            else:
+                logerr("thread '%s': missing URL for HTTP(S) connection" % self.name)
+        elif self.connection_type=='usb':
+            # The device is connected by USB.
+            if self.port:
+                loginf("thread '%s': USB connection to %s" % (self.name,self.port))
+            else:
+                logerr("thread '%s': missing device for USB connection" % self.name)
+        elif self.connection_type=='none':
+            # simulator mode
+            loginf("thread '%s': simulator mode, no real connection" % self.name)
+        else:
+            # no valid configuration
+            logerr("thread '%s': unknown connection type '%s'" % (self.name,self.connection_type))
 
     def shutDown(self):
         """ request thread shutdown """
         self.running = False
         loginf("thread '%s': shutdown requested" % self.name)
+    
+    def socket_open(self):
+        if self.connection_type=='udp':
+            # UDP connection
+            self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXCEC)
+            self.socket.bind(('',self.port))
+        elif self.connection_type=='tcp':
+            # TCP connection
+            self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXCEC)
+            self.socket.connect((self.host,self.port))
+    
+    def socket_close(self):
+        if self.socket:
+            try:
+                self.socket.close()
+            except OSError as e:
+                logerr("thread '%s': OSError %s",self.name,e)
+            finally:
+                self.socket = None
+    
+    def db_open(self):
+        try:
+            self.db_conn = sqlite3.connect(self.db_fn+'.sdb')
+            cur = self.db_conn.cursor()
+            reply = cur.execute('SELECT name FROM sqlite_master')
+            rec = reply.fetchall()
+            if rec and 'precipitation' in [ii[0] for ii in rec]:
+                pass
+                #reply = cur.execute('SELECT * FROM precipitation WHERE `start`>%d' % (time.time()-3600))
+                #self.presentweather_list = reply.fetchall()
+            else:
+                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER)')
+            self.db_conn.commit()
+            cur.close()
+        except sqlite3.Error as e:
+            logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
+    
+    def db_close(self):
+        try:
+            if self.db_conn:
+                self.db_conn.close()
+        except sqlite3.Error as e:
+            logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
+        finally:
+            self.db_conn = None
         
+
     def presentweather(self, ts, ww, wawa):
         if ww is not None: ww = int(ww)
         if wawa is not None: wawa = int(wawa)
@@ -218,9 +324,19 @@ class PrecipThread(threading.Thread):
         #print(1,ts,ww,wawa,add)
         # add a new record or update the timestamp
         if add:
-            self.presentweather_list.append([ts,ts,ww,wawa])
+            if len(self.presentweather_list)>0:
+                try:
+                    cur = self.db_conn.cursor()
+                    reply = cur.execute('INSERT INTO precipitation VALUES (?,?,?,?)',tuple(self.presentweather_list[-1]))
+                    self.db_conn.commit()
+                    cur.close()
+                except sqlite3.Error as e:
+                    logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
+                except LookupError:
+                    pass
+            self.presentweather_list.append([int(ts),int(ts),ww,wawa])
         else:
-            self.presentweather_list[-1][1] = ts
+            self.presentweather_list[-1][1] = int(ts)
         # remove the first element if it ends more than an hour ago
         if self.presentweather_list[0][1]<ts-3600:
             self.presentweather_list.pop(0)
@@ -228,13 +344,19 @@ class PrecipThread(threading.Thread):
         # Now we have a list of the weather codes of the last hour.
         if len(self.presentweather_list)<2:
             # The weather did not change during the last hour.
-            return ww, wawa
+            try:
+                duration = self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
+                start = self.presentweather_list[-1][0]
+            except LookupError:
+                duration = None
+                start = None
+            return ww, wawa, start, duration
         if (len(self.presentweather_list)==2 and 
-            self.presentweather_list[0][2] and 
-            self.presentweather_list[0][3]):
+            not self.presentweather_list[0][2] and 
+            not self.presentweather_list[0][3]):
             # No weather condition at the beginning of the last hour,
             # then one weather condition.
-            return ww, wawa
+            return ww, wawa, self.presentweather_list[-1][0], self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
         # which weather how long?
         WW2 = {
             20: (50,51,52,53,54,55),
@@ -260,13 +382,8 @@ class PrecipThread(threading.Thread):
         wawa_dict = dict()
         ww_dict = dict()
         for ii in self.presentweather_list:
-            if ii[0]>ts-3600:
-                # time span
-                duration = ii[1]-ii[0]
-            else:
-                # the last hour counts only
-                # TODO: Ist das wirklich sinnvoll?
-                duration = ii[1]-ts+3600
+            # time span
+            duration = ii[1]-ii[0]
             ii_wawa = ii[3]
             for key,val in WAWA2.items():
                 if ii_wawa in val:
@@ -286,18 +403,21 @@ class PrecipThread(threading.Thread):
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
         if len(wawa_dict)==1:
-            return ww, wawa
+            for _,_duration in wawa_dict.items(): pass
+            return ww, wawa, int(ts-_duration), _duration
         if len(ww_dict)==1:
-            return ww, wawa
+            for _,_duration in ww_dict.items(): pass
+            return ww, wawa, int(ts-_duration), _duration
+        # duration of the current weather condition
+        duration_since = self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
         # Is there actually some weather condition?
         if wawa or ww:
             # weather detected
             # TODO: detect showers
-            return ww, wawa
+            return ww, wawa, self.presentweather_list[-1][0], duration_since
         else:
             # The weather ended within the last hour. That means, the
             # weather code is 20...29.
-            duration_since = self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
             if 0 in wawa_dict:
                 wawa_dict[0] -= duration_since
             if 0 in ww_dict:
@@ -315,15 +435,61 @@ class PrecipThread(threading.Thread):
             if (wawa_dur<=wawa_dur0) and (ww_dur<=ww_dur0):
                 return ww, wawa
             """
-            return ww_list[0][0], wawa_list[0][0]
+            return ww_list[0][0], wawa_list[0][0], self.presentweather_list[-1][0], duration_since
     
     def getRecord(self, ot):
     
         if __name__ == '__main__':
             print()
-            print('-----',self.name,'-----',ot,'-----')
+            print('-----',self.name,'-----',ot,'-----',self.connection_type,'-----')
 
-        reply = "200248;000.000;0000.00;00;-9.999;9999;000.00;025;15759;00000;0;\r\n"
+        # fetch data from device
+        
+        if self.connection_type in ('udp','tcp'):
+            # UDP or TCP connection
+            # In this case the device sends data by itself. We cannot 
+            # control the interval. We have to process the data as they
+            # arrive. The select() function stops the thread until data
+            # is available.
+            if ot=='once': return
+            if not self.socket: self.socket_open()
+            if not self.socket: return
+            rlist, wlist, xlist = select.select([self.socket],[],[],5)
+            if not rlist: return
+            if self.connection_type=='udp':
+                reply, source_addr = self.socket.recvfrom(1024)
+                if source_addr!=self.host: 
+                    logerr("thread '%s': received data from %s but %s expected" %(self.name,source_addr,self.host))
+                    return
+            else:
+                reply = self.socket.recv(1024)
+            reply = reply.decode('ascii',errors='ignore')
+        elif self.connection_type in ('restful','http','https'):
+            # restful service
+            # TODO
+            pass
+        elif self.connection_type=='usb':
+            # The device is connected by USB
+            if ot=='once': return
+            if not self.file: 
+                self.file = open(self.port,'rt')
+                os.set_blocking(file.fileno(), False)
+            if not self.file: return
+            reply = ''
+            while '\n' not in reply:
+                rlist, wlist, xlist = select.select([self.file],[],[],5)
+                if not rlist: return
+                reply += file.read()
+        else:
+            # simulator mode
+            if ot=='once':
+                # Initialization message
+                reply = "Ott Parsivel2\r\n"
+            else:
+                temp = int(round(25+2*math.sin((time.time()%30)/30*math.pi),0))
+                reply = "200248;000.000;0000.00;00;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % temp
+        
+        # process data
         
         ts = time.time()
         ww = None
@@ -331,6 +497,7 @@ class PrecipThread(threading.Thread):
         # record contains value tuples here.
         record = dict()
         if self.model=='ott-parsivel2':
+            if ';' not in reply: reply = ''
             for ii in self.telegram_list:
                 # if there are not enough fields within the data telegram
                 # stop processing
@@ -366,17 +533,36 @@ class PrecipThread(threading.Thread):
                         # ii[4] already includes prefix here.
                         record[ii[4]] = val
                     # remember weather codes
-                    if ii[0]==PARSIVEL_WAWA: wawa = val[0]
-                    if ii[0]==PARSIVEL_WW: ww = val[0]
+                    if ii[6]=='group_wmo_wawa': wawa = val[0]
+                    if ii[6]=='group_wmo_ww': ww = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     pass
-        try:
-            ww, wawa = self.presentweather(ts, ww, wawa)
-            if ww is not None: record['ww'] = (ww,'byte','group_data')
-            if wawa is not None: record['wawa'] = (wawa,'byte','group_data')
-        except (LookupError,ValueError,TypeError,ArithmeticError):
-            pass
-        self.put_data(record)
+        #elif self.model=='...'
+        #    ...
+        else:
+            logerr("thread '%s': unknown model '%s'" % (self.name,self.model))
+            self.shutDown()
+        if record:
+            try:
+                ww, wawa, since, duration = self.presentweather(ts, ww, wawa)
+                if ww is not None: record['ww'] = (ww,'byte','group_wmo_ww')
+                if wawa is not None: record['wawa'] = (wawa,'byte','group_wmo_wawa')
+                if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
+                if duration is not None: record['presentweatherDur'] = (duration,'second','group_deltatime')
+            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                if self.next_presentweather_error<time.time():
+                    logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
+                    if __name__ == '__main__':
+                        self.next_presentweather_error = 0
+                    else:
+                        self.next_presentweather_error = time.time()+300
+        
+        # send record to queue for processing in the main thread
+        
+        if __name__ == '__main__':
+            print(record)
+        if ot=='loop':
+            self.put_data(record)
         
     def put_data(self, x):
         if x:
@@ -393,16 +579,27 @@ class PrecipThread(threading.Thread):
 
     def run(self):
         loginf("thread '%s' starting" % self.name)
-        #try:
-        if True:
+        self.db_open()
+        try:
             self.getRecord('once')
             while self.running:
                 self.getRecord('loop')
-                time.sleep(self.query_interval)
-        #except Exception as e:
-        #    logerr("thread '%s': %s" % (self.name,e))
-        #finally:
-        #    loginf("thread '%s' stopped" % self.name)
+                if self.connection_type not in ('udp','tcp'):
+                    time.sleep(self.query_interval)
+        except Exception as e:
+            logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
+        finally:
+            # remember the present weather codes of the last hour
+            try:
+                with open(self.db_fn+'.json','wt') as file:
+                    json.dump(self.presentweather_list,file)
+            except Exception as e:
+                logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
+            # close socket and file descriptors
+            if self.socket: self.socket_close()
+            if self.file: self.file.close()
+            self.db_close()
+            loginf("thread '%s' stopped" % self.name)
 
 
 class PrecipData(StdService):
@@ -420,12 +617,14 @@ class PrecipData(StdService):
         self.threads = dict()
         self.dbm = None
         self.archive_interval = 300
+        sqlite_root = config_dict.get('DatabaseTypes',configobj.ConfigObj()).get('SQLite',configobj.ConfigObj()).get('SQLITE_ROOT')
         if 'PrecipMeter' in config_dict:
             ct = 0
             for name in config_dict['PrecipMeter'].sections:
                 dev_dict = weeutil.config.accumulateLeaves(config_dict['PrecipMeter'][name])
                 if 'loop' in config_dict['PrecipMeter'][name]:
                     dev_dict['loop'] = config_dict['PrecipMeter'][name]['loop']
+                dev_dict['SQLITE_ROOT'] = sqlite_root
                 if weeutil.weeutil.to_bool(dev_dict.get('enable',True)):
                     if self._create_thread(name,dev_dict):
                         ct += 1
@@ -477,7 +676,7 @@ class PrecipData(StdService):
                                     obstype = thread_dict['prefix']+jj[4][0].upper()+jj[4][1:]
                                 else:
                                     obstype = jj[4]
-                                if jj[6]=='group_count' or jj[0] in (PARSIVEL_WAWA,PARSIVEL_WW):
+                                if jj[6] in ('group_count','group_wmo_ww','group_wmo_wawa'):
                                     obsdatatype = 'INTEGER'
                                 elif jj[5]=='string':
                                     obsdatatype = 'VARCHAR(%d)' % jj[2]
@@ -557,8 +756,10 @@ class PrecipData(StdService):
                 pass
         
     def _process_data(self, thread_name):
+        AVG_GROUPS = ('group_temperature','group_db','group_distance')
+        MAX_GROUPS = ('group_wmo_ww','group_wmo_wawa')
         # get collected data
-        data = None
+        data = dict()
         ct = 0
         while True:
             try:
@@ -566,11 +767,34 @@ class PrecipData(StdService):
             except queue.Empty:
                 break
             else:
-                data = data1
+                for key,val in data1[1].items():
+                    if key in data:
+                        if val[2] in AVG_GROUPS:
+                            try:
+                                data[key] = ((data[key][0][0]+val[0],data[key][0][1]+1),val[1],val[2])
+                            except ArithmeticError:
+                                data[key] = val
+                        elif val[2] in MAX_GROUPS:
+                            try:
+                                if data[key][0]<val[0]:
+                                    data[key] = val
+                            except ArithmeticError:
+                                pass
+                        else:
+                            data[key] = val
+                    else:
+                        if val[2] in AVG_GROUPS:
+                            data[key] = ((val[0],1),val[1],val[2])
+                        else:
+                            data[key] = val
                 ct += 1
         if data:
-            data[1]['count'] = (ct,'count','group_count')
-            return data[1]
+            for key in data:
+                if data[key][2] in AVG_GROUPS:
+                    data[key] = (data[key][0][0]/data[key][0][1],data[key][1],data[key][2])
+            data['count'] = (ct,'count','group_count')
+            #print(data)
+            return data
         return None
 
     def new_loop_packet(self, event):
@@ -605,9 +829,9 @@ class PrecipData(StdService):
         data = dict()
         for key in reply:
             #print('*',key)
-            if key in ('time','interval','count','sysStatus'):
+            if key in ('time','interval','count'):
                 pass
-            elif key in ('interval','count','sysStatus'):
+            elif key in ('interval','count'):
                 data[key] = reply[key]
             else:
                 try:
@@ -769,7 +993,10 @@ if __name__ == '__main__':
                 event.packet = {'usUnits':weewx.METRIC}
                 sv.new_loop_packet(event)
                 if len(event.packet)>1:
+                    print('============================================================')
                     print(event.packet)
+                    print('============================================================')
+                time.sleep(10)
         except Exception as e:
             print('**MAIN**',e.__class__.__name__,e)
         except KeyboardInterrupt:
