@@ -78,8 +78,7 @@ The observation types are automatically registered with WeeWX.
 
 Accumulators define how to aggregate the readings during the
 archive interval.
-This extension tries to set up reasonable accumulators for the
-observation types defined in the `[[[loop]]]` subsubsection. If
+This extension tries to set up reasonable accumulators. If
 they do not work for you, you can set up accumulators manually
 in the `[Accumulator]` section of `weewx.conf`.
 See [WeeWX Accumulators wiki page](https://github.com/weewx/weewx/wiki/Accumulators)
@@ -98,7 +97,7 @@ table or the `firstlast` accumulator, not both.
 
 [DataBindings]
     ...
-    # additional section for an extra database to store the SNMP data
+    # additional section for an extra database to store the disdrometer data
     # optional!
     [[preicp_binding]]
         database = precip_sqlite
@@ -108,7 +107,7 @@ table or the `firstlast` accumulator, not both.
 
 [Databases]
     ...
-    # additional section for an extra database to store SNMP data
+    # additional section for an extra database to store disdrometer data
     # optional!
     [[precip_sqlite]]
         database_name = precipmeter.sdb
@@ -119,9 +118,53 @@ table or the `firstlast` accumulator, not both.
         data_services = ..., user.precipmeter.PrecipData
         archive_services = ..., user.precipmeter.PrecipArchive
 
-...
+[PrecipMeter]
+    data_binding = precip_binding
+    weathercodes = Parsivel
+    visibility = Parsivel
+    [[Parsivel]]
+        model = Ott-Parsivel2
+        prefix = ott
+        telegram = "%13;%01;%02;%03;%07;%08;%34;%12;%10;%11;%18;/r/n"
+        type = tcp # udp tcp restful usb none
+        host = replace_me
+        port = replace_me
 
 ```
+
+## Observation types
+
+### General observation types
+
+* `ww`: present weather code according to WMO table 4677, enhanced by
+  this extension
+* `wawa`: present weather code according to WMO table 4680, enhanced by
+  this extension
+* `presentweatherStart`: timestamp of the beginning of the present weather
+* `presentweatherTime`: time elapsed since last change of the present weather
+* `visibility`: visibility, derived from `MOR`
+
+To convert the present weather code into a symbol or icon
+see [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
+
+### Ott Hydromet Parsivel<sup>2</sup>
+
+Those observation type names are prepended by the prefix defined in
+`weewx.conf`. Default is `ott`.
+
+* `SNR`: serial number of the device
+* `queryInterval`: 
+* `sensorState`:
+* `errorCode`:
+* `wawa`: present weather code according to WMO table 4680
+* `ww`: present weather code according to WMO table 4677
+* `METAR`: present weather code according to WMO table 4678
+* `NWS`: present weather code according to NWS
+* `rainRate`: rain rate
+* `rainAkku`: accumulated rain
+* `rainAbs`: absolute amount of rain
+* `dBZ`: radar reflectivity factor
+* `MOR`: meteorological optical range (visibility)
 
 
 ## References

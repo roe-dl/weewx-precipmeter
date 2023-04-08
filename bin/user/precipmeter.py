@@ -146,7 +146,7 @@ PARSIVEL = {
   (32,'Regenmenge akkumuliert (16bit)',7,'0000.00',None,'mm','group_rain'),
   (33,'Radarreflektivität (16bit)',5,'00.00',None,'db','group_db'),
   # other readings
-  ( 8,'MOR Sichtweite im Niederschlag',5,'00000','visibility','meter','group_distance'),
+  ( 8,'MOR Sichtweite im Niederschlag',5,'00000','MOR','meter','group_distance'),
   (10,'Signalamplitude des Laserbandes',5,'00000','signal','count','group_count'),
   (11,'Anzahl der erkannten und validierten Partikel',5,'00000','particle','count','group_count'),
   (12,'Temperatur im Sensorgehäuse',3,'000','housingTemp','degree_C','group_temperature'),
@@ -198,9 +198,12 @@ class PrecipThread(threading.Thread):
     
         super(PrecipThread,self).__init__(name='PrecipMeter-'+name)
 
+        self.start_ts = time.time()
         self.telegram = conf_dict['telegram']
         self.telegram_list = conf_dict['loop']
         self.model = conf_dict.get('model','Ott-Parsivel2').lower()
+        self.set_weathercodes = conf_dict.get('weathercodes',name)==name
+        self.set_visibility = conf_dict.get('visibility',name)==name
         
         self.data_queue = data_queue
         self.query_interval = query_interval
@@ -310,9 +313,29 @@ class PrecipThread(threading.Thread):
             logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
         finally:
             self.db_conn = None
-        
-
+    
     def presentweather(self, ts, ww, wawa):
+        WW2 = {
+            20: (50,51,52,53,54,55),
+            21: (60,61,62,63,64,65),
+            22: (70,71,72,73,74,75),
+            23: (68,69),
+            24: (56,57,66,67),
+            25: (80,81,82),
+            26: (85,86),
+            27: (87,88,89,90),
+            28: (41,42,43,44,45,46,47,48,49),
+            29: (95,96,97,98,99)
+        }
+        WAWA2 = {
+            20: (30,31,32,33,34,35),
+            21: (40,41,42),
+            22: (50,51,52,53,57,58),
+            23: (60,61,62,63,67,68,43,44),
+            24: (70,71,72,73,74,75,76,45,46),
+            25: (54,55,56,64,65,66,47,48),
+            26: (90,91,92,93,94,95,96)
+        }
         if ww is not None: ww = int(ww)
         if wawa is not None: wawa = int(wawa)
         # check if the actual weather code is different from the previous one
@@ -340,45 +363,38 @@ class PrecipThread(threading.Thread):
         # remove the first element if it ends more than an hour ago
         if self.presentweather_list[0][1]<ts-3600:
             self.presentweather_list.pop(0)
-        #print(4,self.presentweather_list)
         # Now we have a list of the weather codes of the last hour.
+        if __name__ == '__main__':
+            print('presentweather_list',self.presentweather_list)
+        # start timestamp and duration of the current weather condition
+        # (We do not care about the intensity of precipitation here.)
+        try:
+            start = None
+            for idx,ii in enumerate(reversed(self.presentweather_list)):
+                if idx:
+                    if ii[3] is not None and WAWA2.get(ii[3],ii[3])!=ii_wawa: 
+                        break
+                    if ii[2] is not None and WW2.get(ii[2],ii[2])!=ii_ww: 
+                        break
+                else:
+                    ii_ww = WW2.get(ii[2],ii[2])
+                    ii_wawa = WAWA2.get(ii[3],ii[3])
+                start = ii[0]
+            elapsed = self.presentweather_list[-1][1]-start
+            start = int(start)
+        except (LookupError,TypeError,ValueError,ArithmeticError):
+            elapsed = None
+            start = None
         if len(self.presentweather_list)<2:
             # The weather did not change during the last hour.
-            try:
-                duration = self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
-                start = self.presentweather_list[-1][0]
-            except LookupError:
-                duration = None
-                start = None
-            return ww, wawa, start, duration
+            return ww, wawa, start, elapsed
         if (len(self.presentweather_list)==2 and 
             not self.presentweather_list[0][2] and 
             not self.presentweather_list[0][3]):
             # No weather condition at the beginning of the last hour,
             # then one weather condition.
-            return ww, wawa, self.presentweather_list[-1][0], self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
+            return ww, wawa, start, elapsed
         # which weather how long?
-        WW2 = {
-            20: (50,51,52,53,54,55),
-            21: (60,61,62,63,64,65),
-            22: (70,71,72,73,74,75),
-            23: (68,69),
-            24: (56,57,66,67),
-            25: (80,81,82),
-            26: (85,86),
-            27: (87,88,89,90),
-            28: (41,42,43,44,45,46,47,48,49),
-            29: (95,96,97,98,99)
-        }
-        WAWA2 = {
-            20: (30,31,32,33,34,35),
-            21: (40,41,42),
-            22: (50,51,52,53,57,58),
-            23: (60,61,62,63,67,68,43,44),
-            24: (70,71,72,73,74,75,76,45,46),
-            25: (54,55,56,64,65,66,47,48),
-            26: (90,91,92,93,94,95,96)
-        }
         wawa_dict = dict()
         ww_dict = dict()
         for ii in self.presentweather_list:
@@ -402,26 +418,22 @@ class PrecipThread(threading.Thread):
             ww_dict[ii_ww] += duration
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
-        if len(wawa_dict)==1:
-            for _,_duration in wawa_dict.items(): pass
-            return ww, wawa, int(ts-_duration), _duration
-        if len(ww_dict)==1:
-            for _,_duration in ww_dict.items(): pass
-            return ww, wawa, int(ts-_duration), _duration
-        # duration of the current weather condition
-        duration_since = self.presentweather_list[-1][1]-self.presentweather_list[-1][0]
+        if len(wawa_dict)==1 and wawa is not None:
+            return ww, wawa, start, elapsed
+        if len(ww_dict)==1 and ww is not None:
+            return ww, wawa, start, elapsed
         # Is there actually some weather condition?
         if wawa or ww:
             # weather detected
             # TODO: detect showers
-            return ww, wawa, self.presentweather_list[-1][0], duration_since
+            return ww, wawa, start, elapsed
         else:
             # The weather ended within the last hour. That means, the
             # weather code is 20...29.
             if 0 in wawa_dict:
-                wawa_dict[0] -= duration_since
+                wawa_dict[0] -= elapsed
             if 0 in ww_dict:
-                ww_dict[0] -= duration_since
+                ww_dict[0] -= elapsed
             # sort weather conditions by time
             wawa_list = sorted(wawa_dict.items(),key=lambda x:x[1],reverse=True)
             ww_list = sorted(ww_dict.items(),key=lambda x:x[1],reverse=True)
@@ -435,7 +447,7 @@ class PrecipThread(threading.Thread):
             if (wawa_dur<=wawa_dur0) and (ww_dur<=ww_dur0):
                 return ww, wawa
             """
-            return ww_list[0][0], wawa_list[0][0], self.presentweather_list[-1][0], duration_since
+            return ww_list[0][0], wawa_list[0][0], self.presentweather_list[-1][0], elapsed
     
     def getRecord(self, ot):
     
@@ -487,7 +499,12 @@ class PrecipThread(threading.Thread):
                 reply = "Ott Parsivel2\r\n"
             else:
                 temp = int(round(25+2*math.sin((time.time()%30)/30*math.pi),0))
-                reply = "200248;000.000;0000.00;00;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % temp
+                since = time.time()-self.start_ts
+                if since>120 or since<30:
+                    ww = 0
+                else:
+                    ww = 51
+                reply = "200248;000.000;0000.00;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (ww,temp)
         
         # process data
         
@@ -542,13 +559,13 @@ class PrecipThread(threading.Thread):
         else:
             logerr("thread '%s': unknown model '%s'" % (self.name,self.model))
             self.shutDown()
-        if record:
+        if record and self.set_weathercodes:
             try:
                 ww, wawa, since, duration = self.presentweather(ts, ww, wawa)
                 if ww is not None: record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: record['wawa'] = (wawa,'byte','group_wmo_wawa')
                 if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
-                if duration is not None: record['presentweatherDur'] = (duration,'second','group_deltatime')
+                if duration is not None: record['presentweatherTime'] = (duration,'second','group_deltatime')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 if self.next_presentweather_error<time.time():
                     logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
@@ -556,6 +573,12 @@ class PrecipThread(threading.Thread):
                         self.next_presentweather_error = 0
                     else:
                         self.next_presentweather_error = time.time()+300
+        if record and self.set_visibility:
+            try:
+                # TODO: prefix
+                if 'ottMOR' in record: record['visibility'] = record['ottMOR']
+            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                pass
         
         # send record to queue for processing in the main thread
         
@@ -617,7 +640,12 @@ class PrecipData(StdService):
         self.threads = dict()
         self.dbm = None
         self.archive_interval = 300
-        sqlite_root = config_dict.get('DatabaseTypes',configobj.ConfigObj()).get('SQLite',configobj.ConfigObj()).get('SQLITE_ROOT')
+        sqlite_root = config_dict.get('DatabaseTypes',configobj.ConfigObj()).get('SQLite',configobj.ConfigObj()).get('SQLITE_ROOT','.')
+        weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
+        weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
+        weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
+        weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
+        weewx.units.obs_group_dict.setdefault('visibility','group_distance')
         if 'PrecipMeter' in config_dict:
             ct = 0
             for name in config_dict['PrecipMeter'].sections:
