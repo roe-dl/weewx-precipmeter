@@ -112,8 +112,11 @@ ACCUM_LAST = { 'extractor':'last' }
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
     ii.setdefault('group_wmo_wawa','byte')
+    ii.setdefault('group_rainpower','watt_per_meter_squared')
 
-# Ott Parsivel 2 
+# Ott Parsivel 1 + 2 
+# (not available for Parsivel 1: 34, 35, 60, 61)
+# group_rainpower: 1 J/(m^2h) = 1 Ws/(m^2h) = 1/3600 W/m^2
 PARSIVEL = {
   #Nr,Beschreibung,Stellen,Form,Größe,Einheit,Gruppe
   # device information and identification
@@ -137,7 +140,7 @@ PARSIVEL = {
   ( 6,'Wettercode nach NWS Code',4,'RLS+','NWS','string',None),
   # readings 32 bit
   ( 1,'Regenintensität (32bit)',8,'0000.000','rainRate','mm_per_hour','group_rainrate'),
-  ( 2,'Regenmenge akkumuliert (32bit)',7,'0000.00','rainAkku','mm','group_rain'),
+  ( 2,'Regenmenge akkumuliert (32bit)',7,'0000.00','rainAccu','mm','group_rain'),
   (24,'Regenmenge absolut (32bit)',7,'000.000','rainAbs','mm','group_rain'),
   ( 7,'Radarreflektivität (32bit)',6,'00.000','dBZ','db','group_db'),
   # readings 16 bit (not necessary if 32 bit readings can be used)
@@ -155,7 +158,7 @@ PARSIVEL = {
   (26,'Temperatur Leiterplatte',3,'000','circuitTemp','degree_C','group_temperature'),
   (27,'Temperatur im Sensorkopf rechts',3,'000','rightSensorTemp','degree_C','group_temperature'),
   (28,'Temperatur im Sensorkopf links',3,'000','leftSensorTemp','degree_C','group_temperature'),
-  (34,'kinetische Energie',7,'000.000','energy','J/(m^2h)',''),
+  (34,'kinetische Energie',7,'000.000','energy','J/(m^2h)','group_rainpower'),
   (35,'Schneehöhen-Intensität (volumenäquivalent)',7,'0000.00','snowRate','mm_per_hour','group_rainrate'),
   # special data
   (60,'Anzahl aller erkannten Partikel',8,'00000000','particleCount','count','group_count'),
@@ -204,6 +207,7 @@ class PrecipThread(threading.Thread):
         self.model = conf_dict.get('model','Ott-Parsivel2').lower()
         self.set_weathercodes = conf_dict.get('weathercodes',name)==name
         self.set_visibility = conf_dict.get('visibility',name)==name
+        self.set_precipitation = conf_dict.get('precipitation','-----')==name
         
         self.data_queue = data_queue
         self.query_interval = query_interval
@@ -513,7 +517,7 @@ class PrecipThread(threading.Thread):
         wawa = None
         # record contains value tuples here.
         record = dict()
-        if self.model=='ott-parsivel2':
+        if self.model in ('ott-parsivel','ott-parsivel1','ott-parsivel2'):
             if ';' not in reply: reply = ''
             for ii in self.telegram_list:
                 # if there are not enough fields within the data telegram
@@ -535,6 +539,12 @@ class PrecipThread(threading.Thread):
                     if ii[0]==19:
                         # date and time
                         val = (...,'unixepoch','group_time')
+                    elif ii[0]==34:
+                        # energy
+                        # (According to the unit J/(m^2h) it is not energy
+                        # but power.)
+                        # TODO: unit group
+                        val = (float(val)/3600.0,'watt_per_meter_squared','group_rainpower')
                     elif ii[5]=='string':
                         # string
                         val = (str(val),None,None)
@@ -561,11 +571,11 @@ class PrecipThread(threading.Thread):
             self.shutDown()
         if record and self.set_weathercodes:
             try:
-                ww, wawa, since, duration = self.presentweather(ts, ww, wawa)
+                ww, wawa, since, elapsed = self.presentweather(ts, ww, wawa)
                 if ww is not None: record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: record['wawa'] = (wawa,'byte','group_wmo_wawa')
                 if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
-                if duration is not None: record['presentweatherTime'] = (duration,'second','group_deltatime')
+                if elapsed is not None: record['presentweatherTime'] = (elapsed,'second','group_elapsed')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 if self.next_presentweather_error<time.time():
                     logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
@@ -577,6 +587,22 @@ class PrecipThread(threading.Thread):
             try:
                 # TODO: prefix
                 if 'ottMOR' in record: record['visibility'] = record['ottMOR']
+            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                pass
+        if record and self.set_precipitation:
+            # Generally the readings of `rain` and `rainRate` are not 
+            # provided by this extension but by the driver that is set
+            # up by the `station_type` key in the `[Station]` section
+            # of weewx.conf. In case you want this extension to provide
+            # `rain` and `rainRate` you can set up a `precipitation`
+            # key in the `[PrecipMeter]` section and have it point to
+            # the device subsection you want to get the readings from.
+            try:
+                # TODO: prefix
+                if 'ottRain' in record:
+                    record['rain'] = record['ottRain']
+                if 'ottRainRate' in record:
+                    record['rainRate'] = record['ottRainRate']
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 pass
         
@@ -644,7 +670,7 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
-        weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
+        weewx.units.obs_group_dict.setdefault('presentweatherTime','group_elapsed')
         weewx.units.obs_group_dict.setdefault('visibility','group_distance')
         if 'PrecipMeter' in config_dict:
             ct = 0
@@ -670,7 +696,8 @@ class PrecipData(StdService):
         loginf("thread %s, host %s, poll interval %s" % (thread_name,host,query_interval))
         # telegram config
         model = thread_dict.get('model','Ott-Parsivel2').lower()
-        if model=='ott-parsivel2' and not 'loop' in thread_dict:
+        if (model in ('ott-parsivel','ott-parsivel1','ott-parsivel2') and 
+            not 'loop' in thread_dict):
             # convert Ott Parsivel2 telegram configuration string to the
             # internal structure
             # Note: If that does not meet your needs, use a [loop]
@@ -759,14 +786,23 @@ class PrecipData(StdService):
             if obstype:
                 if obsgroup:
                     weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-                    if (obsgroup in ('group_deltatime',
+                    if (obsgroup in ('group_deltatime','group_elapsed',
                                      'group_time','group_count') and
                         obstype not in weewx.accum.accum_dict):
                         _accum[obstype] = ACCUM_LAST
+                if (obstype.endswith('RainAccu') and
+                    obstype not in weewx.accum.accum_dict):
+                    _accum[obstype] = ACCUM_LAST
                 if issqltexttype(obsdatatype):
                     _accum[obstype] = ACCUM_STRING
                 global table
                 table.append((obstype,obsdatatype))
+        if 'prefix' in thread_dict:
+            obstype = thread_dict['prefix']+'Rain'
+            obsgroup = 'group_rain'
+            weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
+            table.append((obstype,obsgroup))
+            _accum[obstype] = ACCUM_SUM
         # add accumulator entries
         if _accum:
             loginf ("accumulator dict for '%s': %s" % (thread_name,_accum))
@@ -784,7 +820,7 @@ class PrecipData(StdService):
                 pass
         
     def _process_data(self, thread_name):
-        AVG_GROUPS = ('group_temperature','group_db','group_distance')
+        AVG_GROUPS = ('group_temperature','group_db','group_distance','group_volt')
         MAX_GROUPS = ('group_wmo_ww','group_wmo_wawa')
         # get collected data
         data = dict()

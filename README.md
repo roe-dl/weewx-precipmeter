@@ -42,6 +42,7 @@ WeeWX service to fetch data from Ott Parsivel 2
 
 ## Configuration
 
+It is possible to configure more than one device. 
 
 ### General options
 
@@ -51,12 +52,25 @@ WeeWX service to fetch data from Ott Parsivel 2
   If omitted, global options apply. (optional)
 * `log_failure`: If True, log unsuccessful operation. 
   If omitted, global options apply. (optional)
+* `data_binding`: data binding to use for storage
+* `weathercodes`: device to get present weather codes from
+  (use the section name of the device configuration section)
+* `visibility`: device to get `visbility` reading from
+  (use the section name of the device configuration section)
+* `precipitation`: Generally the readings of `rain` and `rainRate` are not 
+  provided by this extension but by the driver that is set
+  up by the `station_type` key in the `[Station]` section
+  of weewx.conf. In case you want this extension to provide
+  `rain` and `rainRate` you can set up `precipitation`
+  to point to the device subsection of the device you want to get 
+  the readings from.
+  Default is not to provide `rain` and `rainRate`.
+
 
 ### Connection configuration
 
 * `host`: host name or IP address of the device to get data from
-  (mandatory)
-* `port`: port number (mandatory, standard 161)
+* `port`: port number
 * `timeout`: request timeout (optional, default is 0.5s)
 * `retries`: request retries (0 is no retries) (optional, default is
    no retries)
@@ -65,8 +79,13 @@ WeeWX service to fetch data from Ott Parsivel 2
 ### Authentication configuration
 
 
-### Variables configuration
+### Device configuration
 
+* `model`: device model (actually `Ott-Parsivel1` or `Ott-Parsivel2`)
+* `prefix`: observation type name prefix (default `ott`)
+* `telegram`: telegram configuration string as set up in the device
+  (Instead of this key a `[[[loop]]]` sub-subsection can be used 
+  to define the observation types measured by the device.)
 
 See [WeeWX Customization Guide](http://www.weewx.com/docs/customizing.htm#units)
 for a list of predefined units and unit groups.
@@ -147,7 +166,15 @@ table or the `firstlast` accumulator, not both.
 To convert the present weather code into a symbol or icon
 see [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
 
-### Ott Hydromet Parsivel<sup>2</sup>
+The observation types `ww`, `wawa`, `presentweatherStart` and
+`presentweatherTime` are derived from the device that is set
+by the `weathercodes` key. The observation type `visibility`
+is derived from the device that is set by the `visibility`
+key. If the configuration keys `weathercodes` or `visibility`
+are omitted or point to an unknown subsection, the respective
+observation types are omitted.
+
+### Ott Hydromet Parsivel and Parsivel<sup>2</sup>
 
 Those observation type names are prepended by the prefix defined in
 `weewx.conf`. Default is `ott`.
@@ -161,7 +188,7 @@ Those observation type names are prepended by the prefix defined in
 * `METAR`: present weather code according to WMO table 4678
 * `NWS`: present weather code according to NWS
 * `rainRate`: rain rate
-* `rainAkku`: accumulated rain
+* `rainAkku`: accumulated rain since power-on
 * `rainAbs`: absolute amount of rain
 * `dBZ`: radar reflectivity factor
 * `MOR`: meteorological optical range (visibility)
