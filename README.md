@@ -3,6 +3,46 @@ WeeWX service to fetch data from Ott Parsivel 2
 
 ## Prerequisites
 
+### Hardware
+
+#### General
+
+In general you need:
+* a disdrometer or present weather sensor
+* a converter from RS485 to whatever your PC understands
+  (RS485-to-ethernet converter or RS485-to-USB converter)
+* a 24V DC power supply (I recommend using a model including an accumulator
+  for uninterupted supply)
+* in case you want to use WLAN a WLAN adapter
+* an electric cabinet for outdoor usage to put the power supply and the
+  converter(s) in
+* cable glands, wires etc.
+
+#### Parts list
+
+For example I used the following components:
+
+item | amount | description | manufacturer |
+----:|-------:|-------------|--------------|
+01   | 1 pc.  | laser disdrometer Parsivel<sup>2</sup> | Ott Hydromet Fellbach GmbH |
+02   | 1 pc.  | Com-Server++ 58665 | Wiesemann & Theis GmbH |
+03   | 1 pc.  | power supply APU230V.24V-6A/20Ah *) | Rinck Electronics Germany GmbH |
+04   | 1 pc.  | electric cabinet AX | Rittal |
+05   | 2.33 m  | pipe 2" | |
+
+*) If the grid power is more reliable at your location than at mine,
+   you can order that power supply with a smaller accumulator.
+
+### Software
+
+* WeeWX (of course)
+* SQLite3
+* python3-configobj
+* python3-requests (if the device offers a restful service)
+* python3-serial (if the device is connected by USB or serial)
+* python3-simplejson
+
+
 
 ## Installation instructions
 
@@ -181,7 +221,8 @@ Those observation type names are prepended by the prefix defined in
 
 * `SNR`: serial number of the device
 * `queryInterval`: 
-* `sensorState`:
+* `sensorState`: 0 - ok, 1 - dirty but measurement is still possible,
+  2 - dirty, no measurement possible, 3 - laser defective
 * `errorCode`:
 * `wawa`: present weather code according to WMO table 4680
 * `ww`: present weather code according to WMO table 4677
@@ -194,8 +235,33 @@ Those observation type names are prepended by the prefix defined in
 * `MOR`: meteorological optical range (visibility)
 
 
+## How to set up Ott Parsivel<sup>2</sup>?
+
+* Open the front cover
+* Connect the PC to the Parsivel<sup>2</sup> by an USB wire
+* Start a terminal application on the PC
+  - macOS: `screen`
+  - Windows: 
+* Use the commands as described in the Parsivel<sup>2</sup> manual
+
 ## References
 
+### Ott Hydromet
+
+#### English
+
+* [OTT Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/meteorological-sensors-26/ott-parsivel2-laser-weather-sensor-2392/)
+* [manual OTT Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/download/operating-instructions-present-weather-sensor-ott-parsivel2-with-screen-heating-1/)
+
+#### German
+
+* [OTT Parsivel<sup>2</sup>](https://www.ott.com/de-de/produkte/meteorologie-29/ott-parsivel2-niederschlagsbestimmung-97/)
+* [Bedienanleitung OTT Parsivel<sup>2</sup>](https://www.ott.com/de-de/produkte/download/bedienungsanleitung-present-weather-sensor-ott-parsivel2-mit-glasscheibenheizung-1/)
+
+### Thies Clima
+
+* [Thies laser precipitation monitor](https://www.thiesclima.com/en/Products/Precipitation-measuring-technology-Electrical-devices/?art=774)
+* [Thies Laser-Niederschlags-Monitor](https://www.thiesclima.com/de/Produkte/Niederschlag-Messtechnik-Elektrische-Geraete/?art=774)
 
 ### WeeWX
 

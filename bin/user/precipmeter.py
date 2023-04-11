@@ -33,6 +33,12 @@ VERSION = "0.1"
     meteorologische Sichtweite MOR
     meteorological optical range MOR
     
+    `sensorState` Parsivel2:
+        0 - ok
+        1 - dirty, but measurement is still possible
+        2 - dirty, no measurement any more
+        3 - laser defective
+    
 """
 
 import threading 
@@ -224,6 +230,9 @@ class PrecipThread(threading.Thread):
                 self.presentweather_list = json.load(file)
         except FileNotFoundError:
             pass
+        
+        self.next_obs_errors = dict()
+        self.last_rain = None
         
         self.file = None
         self.socket = None
@@ -504,11 +513,13 @@ class PrecipThread(threading.Thread):
             else:
                 temp = int(round(25+2*math.sin((time.time()%30)/30*math.pi),0))
                 since = time.time()-self.start_ts
+                if since<30: self.rain_simulator = 0
                 if since>120 or since<30:
                     ww = 0
                 else:
                     ww = 51
-                reply = "200248;000.000;0000.00;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (ww,temp)
+                    self.rain_simulator += 0.25
+                reply = "200248;000.000;%7.2f;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (self.rain_simulator,ww,temp)
         
         # process data
         
@@ -562,8 +573,22 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
+                    # rain
+                    if ii[0]==2:
+                        # TODO: prefix
+                        if self.last_rain is not None:
+                            rain = val[0]-self.last_rain
+                            if val[0]<self.last_rain:
+                                rain += 300.0
+                            record['ottRain'] = (rain,'mm','group_rain')
+                        self.last_rain = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
-                    pass
+                    # log the same error once in 300 seconds only
+                    if ii[4] not in self.next_obs_errors:
+                        self.next_obs_errors[ii[4]] = 0
+                    if self.next_obs_errors[ii[4]]<time.time():
+                        logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
+                        self.next_obs_errors[ii[4]] = time.time()+300
         #elif self.model=='...'
         #    ...
         else:
@@ -833,7 +858,13 @@ class PrecipData(StdService):
             else:
                 for key,val in data1[1].items():
                     if key in data:
-                        if val[2] in AVG_GROUPS:
+                        if key=='ottRain':
+                            # TODO: prefix
+                            try:
+                                data[key] = (data[key][0]+val[0],val[1],val[2])
+                            except ArithemticError:
+                                pass
+                        elif val[2] in AVG_GROUPS:
                             try:
                                 data[key] = ((data[key][0][0]+val[0],data[key][0][1]+1),val[1],val[2])
                             except ArithmeticError:
