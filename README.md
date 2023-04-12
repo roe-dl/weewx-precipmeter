@@ -9,14 +9,14 @@ WeeWX service to fetch data from Ott Parsivel 2
 
 In general you need:
 * a disdrometer or present weather sensor
-* a converter from RS485 to whatever your PC understands
+* a converter from RS485 to whatever your computer understands
   (RS485-to-ethernet converter or RS485-to-USB converter)
 * a 24V DC power supply (I recommend using a model including an accumulator
   for uninterupted supply)
 * in case you want to use WLAN a WLAN adapter
 * an electric cabinet for outdoor usage to put the power supply and the
   converter(s) in
-* cable glands, wires etc.
+* cable glands, wires, connectors etc.
 
 #### Parts list
 
@@ -26,12 +26,34 @@ item | amount | description | manufacturer |
 ----:|-------:|-------------|--------------|
 01   | 1 pc.  | laser disdrometer Parsivel<sup>2</sup> | Ott Hydromet Fellbach GmbH |
 02   | 1 pc.  | Com-Server++ 58665 | Wiesemann & Theis GmbH |
-03   | 1 pc.  | power supply APU230V.24V-6A/20Ah *) | Rinck Electronics Germany GmbH |
-04   | 1 pc.  | electric cabinet AX | Rittal |
-05   | 2.33 m  | pipe 2" | |
+03   | 1 pc.  | 9 pin sub-D connector female 11904 | Wiesemann & Theis GmbH |
+04   | 1 pc.  | power supply APU230V.24V-6A/20Ah *) | Rinck Electronics Germany GmbH |
+05   | 1 pc.  | electric cabinet AX | Rittal |
+06   | 2.33 m  | pipe 2" | |
 
 *) If the grid power is more reliable at your location than at mine,
    you can order that power supply with a smaller accumulator.
+
+#### Wiesemann & Theis Com-Server++
+
+This is one possible means to connect the disdrometer to the computer. To use it
+you have to set up the Com-Server++ to RS485 2-wire communication. Open
+the device as described in the manual and set the DIP switches as follows:
+
+SW1 | SW2 | SW3 | SW4 | SW5 | SW6 | SW7 | SW8
+----|-----|-----|-----|-----|-----|-----|-----
+ON  | ON  | OFF | OFF | OFF | ON  | ON  | OFF
+
+2 pins of the sub-D connector are used only:
+
+* pin 2: RxD A/-
+* pin 7: RxD B/+
+
+If the distance between the Com-Server++ and the disdrometer is not
+short or both devices are connected to different power supplies, 
+you additionally need an isolator. In case of doubt see the user's
+manual of the disdrometer for requirements. Please note, that
+you alone are responsible for what you do.
 
 ### Software
 
@@ -40,7 +62,6 @@ item | amount | description | manufacturer |
 * python3-configobj
 * python3-requests (if the device offers a restful service)
 * python3-serial (if the device is connected by USB or serial)
-* python3-simplejson
 
 
 
@@ -246,22 +267,37 @@ Those observation type names are prepended by the prefix defined in
 
 ## References
 
-### Ott Hydromet
+### Disdrometers
 
-#### English
+English:
+* [OTT Hydromet Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/meteorological-sensors-26/ott-parsivel2-laser-weather-sensor-2392/)
+* [user's manual OTT Hydromet Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/download/operating-instructions-present-weather-sensor-ott-parsivel2-with-screen-heating-1/)
+* [Thies laser precipitation monitor](https://www.thiesclima.com/en/Products/Precipitation-measuring-technology-Electrical-devices/?art=774)
 
-* [OTT Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/meteorological-sensors-26/ott-parsivel2-laser-weather-sensor-2392/)
-* [manual OTT Parsivel<sup>2</sup>](https://www.ott.com/en-uk/products/download/operating-instructions-present-weather-sensor-ott-parsivel2-with-screen-heating-1/)
-
-#### German
-
+German:
 * [OTT Parsivel<sup>2</sup>](https://www.ott.com/de-de/produkte/meteorologie-29/ott-parsivel2-niederschlagsbestimmung-97/)
 * [Bedienanleitung OTT Parsivel<sup>2</sup>](https://www.ott.com/de-de/produkte/download/bedienungsanleitung-present-weather-sensor-ott-parsivel2-mit-glasscheibenheizung-1/)
-
-### Thies Clima
-
-* [Thies laser precipitation monitor](https://www.thiesclima.com/en/Products/Precipitation-measuring-technology-Electrical-devices/?art=774)
 * [Thies Laser-Niederschlags-Monitor](https://www.thiesclima.com/de/Produkte/Niederschlag-Messtechnik-Elektrische-Geraete/?art=774)
+
+### RS485 adapters
+
+English:
+* [Com-Server++](https://www.wut.de/e-58665-ww-daus-000.php)
+* [user's manual Com-Server++](https://www.wut.de/download/manual/e-5866w-10-prus-219.pdf)
+* [connector](https://www.wut.de/e-11www-11-daus-000.php)
+* [isolator](https://www.wut.de/e-66201-ww-daus-000.php)
+* [isolator and overvoltage protection](https://www.wut.de/e-66203-ww-daus-000.php)
+* [RS232-RS485 converter](https://www.wut.de/e-86201-ww-daus-000.php)
+* [USB-RS485 converter](https://www.wut.de/e-38211-ww-daus-000.php)
+
+German:
+* [Com-Server++](https://www.wut.de/e-58665-ww-dade-000.php)
+* [Bedienanleitung Com-Server++](https://www.wut.de/download/manual/e-5866w-10-prde-219.pdf)
+* [Steckverbinder](https://www.wut.de/e-11www-11-dade-000.php)
+* [Galvanische Trennung](https://www.wut.de/e-66201-ww-dade-000.php)
+* [Galvanische Trennung mit Überspannungsschutz](https://www.wut.de/e-66203-ww-dade-000.php)
+* [RS232-RS485-Umsetzer](https://www.wut.de/e-86201-ww-dade-000.php)
+* [USB-RS485-Umsetzer](https://www.wut.de/e-38211-ww-dade-000.php)
 
 ### WeeWX
 

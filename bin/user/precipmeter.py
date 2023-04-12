@@ -233,6 +233,7 @@ class PrecipThread(threading.Thread):
         
         self.next_obs_errors = dict()
         self.last_rain = None
+        self.last_sensorState = None
         
         self.file = None
         self.socket = None
@@ -582,6 +583,13 @@ class PrecipThread(threading.Thread):
                                 rain += 300.0
                             record['ottRain'] = (rain,'mm','group_rain')
                         self.last_rain = val[0]
+                    elif ii[0]==18:
+                        if self.last_sensorState is None or self.last_sensorState!=val[0]:
+                            if val[0]>0:
+                                logerr("thread '%s': sensor error %s" % (self.name,val[0]))
+                            elif self.last_sensorState is None or self.last_sensorState>0:
+                                loginf("thread '%s': sensor ok" % self.name)
+                        self.last_sensorState = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
