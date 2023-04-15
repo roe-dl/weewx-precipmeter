@@ -120,6 +120,13 @@ for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_wawa','byte')
     ii.setdefault('group_rainpower','watt_per_meter_squared')
 
+MILE_PER_METER = 1.0/weewx.units.METER_PER_MILE
+weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER)
+
+##############################################################################
+#    data telegrams                                                          #
+##############################################################################
+
 # Ott Parsivel 1 + 2 
 # (not available for Parsivel 1: 34, 35, 60, 61)
 # group_rainpower: 1 J/(m^2h) = 1 Ws/(m^2h) = 1/3600 W/m^2
@@ -148,12 +155,12 @@ PARSIVEL = {
   ( 1,'Regenintensität (32bit)',8,'0000.000','rainRate','mm_per_hour','group_rainrate'),
   ( 2,'Regenmenge akkumuliert (32bit)',7,'0000.00','rainAccu','mm','group_rain'),
   (24,'Regenmenge absolut (32bit)',7,'000.000','rainAbs','mm','group_rain'),
-  ( 7,'Radarreflektivität (32bit)',6,'00.000','dBZ','db','group_db'),
+  ( 7,'Radarreflektivität (32bit)',6,'00.000','dBZ','dB','group_db'),
   # readings 16 bit (not necessary if 32 bit readings can be used)
   (30,'Regenintensität (16bit) max 30 mm/h',6,'00.000',None,'mm_per_hour','group_rainrate'),
   (31,'Regenintensität (16bit) max 1200 mm/h',6,'0000.0',None,'mm_per_hour','group_rainrate'),
   (32,'Regenmenge akkumuliert (16bit)',7,'0000.00',None,'mm','group_rain'),
-  (33,'Radarreflektivität (16bit)',5,'00.00',None,'db','group_db'),
+  (33,'Radarreflektivität (16bit)',5,'00.00',None,'dB','group_db'),
   # other readings
   ( 8,'MOR Sichtweite im Niederschlag',5,'00000','MOR','meter','group_distance'),
   (10,'Signalamplitude des Laserbandes',5,'00000','signal','count','group_count'),
@@ -170,8 +177,31 @@ PARSIVEL = {
   (60,'Anzahl aller erkannten Partikel',8,'00000000','particleCount','count','group_count'),
   (61,'Liste aller erkannten Partikel',13,'00.000;00.000',None,'mm;m/s',None),
   (90,'Feld N(d)',223,'00.000S',None,'log10(1/m^3 mm)',None),
-  (91,'Feld v(d)',223,'00.000S',None,'meter_per_second',None),
-  (93,'Rohdaten',4095,'000S',None,None,None)
+  (91,'Feld v(d)',223,'00.000S','particleSpeed','meter_per_second','group_speed'),
+  (93,'Rohdaten',4095,'000S','raw','count','group_count')
+}
+
+THIES = {
+  ( 2,'Geräteadresse',2,'00',None,'string',None),
+  ( 3,'Seriennummer',4,'NNNN','SNR','string',None),
+  ( 4,'Software-Version',5,'N.NN',None,'string',None),
+  ( 5,'Gerätedatum',8,'tt.mm.jj',None,'string',None),
+  ( 6,'Gerätezeit zur Abfrage',8,'hh:mm:ss',None,'string',None),
+  ( 7,'5-Minuten-Mittelwert SYNOP 4677',2,'NN','ww','byte','group_wmo_ww'),
+  ( 8,'5-Minuten-Mittelwert SYNOP 4680',2,'NN','wawa','byte','group_wmo_wawa'),
+  ( 9,'5-Minuten-Mittelwert METAR 4678',5,'AAAAA','METAR','string',None),
+  (10,'5-Mintuen-Mittelwert Intensität',7,'NNN.NNN','rainRate','mm_per_hour','group_rainrate'),
+  (11,'1-Minuten-Wert SYNOP 4677',2,'NN',None,'byte','group_wmo_ww'),
+  (12,'1-Minuten-Wert SYNOP 4680',2,'NN',None,'byte','group_wmo_wawa'),
+  (13,'1-Minuten-Wert METAR 4678',5,'NN',None,'string',None),
+  (14,'1-Minuten-Intensität alle Niederschläge',7,'NNN.NNN',None,'mm_per_hour','group_rainrate'),
+  (15,'1-Minuten-Intensität flüssig',7,'NNN.NNN',None,'mm_per_hour','group_rainrate'),
+  (16,'1-Minuten-Intensität fest',7,'NNN.NNN',None,'mm_per_hour','group_rainrate'),
+  (17,'Niederschlagssumme',7,'NNNN.NN','rainAccu','mm','groupRain'),
+  (18,'1-Minuten-Wert Sichtweite im Niederschlag',5,'NNNNN','MOR','meter','group_distance'),
+  (19,'1-Minuten-Wert Radarreflektivität',4,'NN.N','dBZ','dB','group_db'),
+  (20,'Qualitätsmaß',3,'NNN',None,'percent','group_percent'),
+  # ...
 }
 
 ##############################################################################
@@ -210,6 +240,8 @@ class PrecipThread(threading.Thread):
         self.start_ts = time.time()
         self.telegram = conf_dict['telegram']
         self.telegram_list = conf_dict['loop']
+        self.field_separator = conf_dict.get('field_separator',';')
+        self.record_separator = conf_dict.get('record_separator','\r\n')
         self.model = conf_dict.get('model','Ott-Parsivel2').lower()
         self.set_weathercodes = conf_dict.get('weathercodes',name)==name
         self.set_visibility = conf_dict.get('visibility',name)==name
@@ -243,14 +275,14 @@ class PrecipThread(threading.Thread):
         if host and self.connection_type in ('udp','tcp'): 
             host = socket.gethostbyname(host)
         self.host = host
-        self.port = conf_dict.get('port')
+        self.port = int(conf_dict.get('port'))
         
         self.running = True
         
         if self.connection_type=='udp':
             # The device sends data by UDP.
             if self.port:
-                loginf("thread '%s': UDP connection %s:%s" % (self.name,self.host,self.prt))
+                loginf("thread '%s': UDP connection %s:%s" % (self.name,self.host,self.port))
             else:
                 logerr("thread '%s': UDP configuration error" % self.name)
         elif self.connection_type=='tcp':
@@ -284,21 +316,31 @@ class PrecipThread(threading.Thread):
         loginf("thread '%s': shutdown requested" % self.name)
     
     def socket_open(self):
-        if self.connection_type=='udp':
-            # UDP connection
-            self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXCEC)
-            self.socket.bind(('',self.port))
-        elif self.connection_type=='tcp':
-            # TCP connection
-            self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXCEC)
-            self.socket.connect((self.host,self.port))
+        if __name__ == '__main__':
+            print('socket_open()','start',self.connection_type)
+        try:
+            if self.connection_type=='udp':
+                # UDP connection
+                self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXEC)
+                self.socket.bind(('',self.port))
+            elif self.connection_type=='tcp':
+                # TCP connection
+                self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM | socket.SOCK_CLOEXEC)
+                #select.select([self.socket],[self.socket],[self.socket])
+                self.socket.connect((self.host,self.port))
+        except OSError as e:
+            logerr("thread '%s': opening connection to %s:%s failed with %s %s, will be tried again" % (self.name,self.host,self.port,e.__class__.__name__,e))
+            self.socket_close()
+        if __name__ == '__main__':
+            print('socket_open()','end',self.socket)
+        
     
     def socket_close(self):
         if self.socket:
             try:
                 self.socket.close()
             except OSError as e:
-                logerr("thread '%s': OSError %s",self.name,e)
+                logerr("thread '%s': closing connection to %s:%s failed with %s %s",self.name,self.host,self.port,e.__class__.__name__,e)
             finally:
                 self.socket = None
     
@@ -352,6 +394,9 @@ class PrecipThread(threading.Thread):
         }
         if ww is not None: ww = int(ww)
         if wawa is not None: wawa = int(wawa)
+        if ww is not None and wawa is not None:
+            if (ww and not wawa) or (wawa and not ww):
+                logerr('ww wawa inconsistency ww=%02d wawa=%02d' % (ww,wawa))
         # check if the actual weather code is different from the previous one
         if len(self.presentweather_list)==0:
             add = True
@@ -432,9 +477,7 @@ class PrecipThread(threading.Thread):
             ww_dict[ii_ww] += duration
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
-        if len(wawa_dict)==1 and wawa is not None:
-            return ww, wawa, start, elapsed
-        if len(ww_dict)==1 and ww is not None:
+        if len(wawa_dict)<=1 and len(ww_dict)<=1:
             return ww, wawa, start, elapsed
         # Is there actually some weather condition?
         if wawa or ww:
@@ -479,16 +522,23 @@ class PrecipThread(threading.Thread):
             # is available.
             if ot=='once': return
             if not self.socket: self.socket_open()
-            if not self.socket: return
-            rlist, wlist, xlist = select.select([self.socket],[],[],5)
-            if not rlist: return
-            if self.connection_type=='udp':
-                reply, source_addr = self.socket.recvfrom(1024)
-                if source_addr!=self.host: 
-                    logerr("thread '%s': received data from %s but %s expected" %(self.name,source_addr,self.host))
-                    return
-            else:
-                reply = self.socket.recv(1024)
+            if not self.socket: 
+                time.sleep(self.query_interval)
+                return
+            reply = b''
+            while True:
+                rlist, wlist, xlist = select.select([self.socket],[],[],5)
+                if not rlist: return
+                if self.connection_type=='udp':
+                    reply, source_addr = self.socket.recvfrom(8192)
+                    if source_addr!=self.host: 
+                        logerr("thread '%s': received data from %s but %s expected" %(self.name,source_addr,self.host))
+                        return
+                    break
+                else:
+                    x = self.socket.recv(8192)
+                    reply += x
+                    if b'\n' in reply: break
             reply = reply.decode('ascii',errors='ignore')
         elif self.connection_type in ('restful','http','https'):
             # restful service
@@ -524,6 +574,9 @@ class PrecipThread(threading.Thread):
         
         # process data
         
+        if ((self.field_separator not in reply) or 
+            (self.record_separator not in reply)):
+            return
         ts = time.time()
         ww = None
         wawa = None
@@ -590,6 +643,50 @@ class PrecipThread(threading.Thread):
                             elif self.last_sensorState is None or self.last_sensorState>0:
                                 loginf("thread '%s': sensor ok" % self.name)
                         self.last_sensorState = val[0]
+                except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                    # log the same error once in 300 seconds only
+                    if ii[4] not in self.next_obs_errors:
+                        self.next_obs_errors[ii[4]] = 0
+                    if self.next_obs_errors[ii[4]]<time.time():
+                        logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
+                        self.next_obs_errors[ii[4]] = time.time()+300
+        elif self.model=='thies':
+            if reply[0]==chr(2): reply = reply[1:]
+            if ';' not in reply: reply = ''
+            for ii in self.telegram_list:
+                # if there are not enough fields within the data telegram
+                # stop processing
+                if not reply: break
+                # split the first remaining field 
+                # TODO: separator other than semikolon
+                x = reply.split(';',1)
+                try:
+                    val = x[0]
+                except LookupError:
+                    val = ''
+                try:
+                    reply = x[1]
+                except LookupError:
+                    reply = ''
+                # convert the field value string to the appropriate data type
+                try:
+                    if ii[5]=='string':
+                        # string
+                        val = (str(val),None,None)
+                    elif ii[7]=='INTEGER':
+                        # counter, wawa, ww
+                        val = (int(val),ii[5],ii[6])
+                    elif ii[7]=='REAL':
+                        # float
+                        val = (float(val),ii[5],ii[6])
+                    else:
+                        print('error')
+                    if ii[4]:
+                        # ii[4] already includes prefix here.
+                        record[ii[4]] = val
+                    # remember weather codes
+                    if ii[6]=='group_wmo_wawa': wawa = val[0]
+                    if ii[6]=='group_wmo_ww': ww = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
@@ -770,7 +867,16 @@ class PrecipData(StdService):
                                     obsdatatype = 'VARCHAR(%d)' % jj[2]
                                 else:
                                     obsdatatype = 'REAL'
-                                t.append(jj[0:4]+(obstype,)+jj[5:]+(obsdatatype,))
+                                if nr in (90,91,93):
+                                    width = 4 if nr==93 else 2
+                                    for subfield in range((jj[2]+1)//len(jj[3])):
+                                        if obstype:
+                                            subobstype = '%s%0*d' % (obstype,width,subfield)
+                                        else:
+                                            subobstype = None
+                                        t.append((jj[0],jj[1],len(jj[3]),jj[3],subobstype,)+jj[5:]+(obsdatatype,))
+                                else:
+                                    t.append(jj[0:4]+(obstype,)+jj[5:]+(obsdatatype,))
                                 break
                         ct = None
                 elif ii=='%':
@@ -834,8 +940,8 @@ class PrecipData(StdService):
             obstype = thread_dict['prefix']+'Rain'
             obsgroup = 'group_rain'
             weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-            table.append((obstype,obsgroup))
-            _accum[obstype] = ACCUM_SUM
+            #table.append((obstype,obsgroup))
+            #_accum[obstype] = ACCUM_SUM
         # add accumulator entries
         if _accum:
             loginf ("accumulator dict for '%s': %s" % (thread_name,_accum))
@@ -968,6 +1074,7 @@ class PrecipArchive(StdService):
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
             # init schema
             global schema
+            global table
             schema = {
                 'table':table,
                 'day_summaries':day_summaries(table)}
@@ -975,6 +1082,8 @@ class PrecipArchive(StdService):
                 print('----------')
                 print(schema)
                 print('----------')
+            loginf(table)
+            loginf(schema)
             # init database
             binding = config_dict['PrecipMeter'].get('data_binding','precip_binding')
             if binding in ('None','none'): binding = None

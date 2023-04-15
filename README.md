@@ -1,5 +1,8 @@
 # weewx-precipmeter
-WeeWX service to fetch data from Ott Parsivel 2
+WeeWX service to fetch data from disdrometers or present weather sensors
+like Ott Parsivel<sup>2</sup>
+
+Please note: Actually the TCP connection is tested only.
 
 ## Prerequisites
 
@@ -147,6 +150,8 @@ It is possible to configure more than one device.
 * `telegram`: telegram configuration string as set up in the device
   (Instead of this key a `[[[loop]]]` sub-subsection can be used 
   to define the observation types measured by the device.)
+* `field_separator`: data field separator. Optional. Default is `;`.
+* `record_separator`: data record separator. Optional. Default is `\r\n`
 
 See [WeeWX Customization Guide](http://www.weewx.com/docs/customizing.htm#units)
 for a list of predefined units and unit groups.
@@ -179,7 +184,7 @@ table or the `firstlast` accumulator, not both.
     ...
     # additional section for an extra database to store the disdrometer data
     # optional!
-    [[preicp_binding]]
+    [[precip_binding]]
         database = precip_sqlite
         table_name = archive
         manager = weewx.manager.DaySummaryManager
@@ -254,6 +259,7 @@ Those observation type names are prepended by the prefix defined in
 * `rainAbs`: absolute amount of rain
 * `dBZ`: radar reflectivity factor
 * `MOR`: meteorological optical range (visibility)
+* `raw0000` to `raw1023`: raw data (no. 93)
 
 
 ## How to set up Ott Parsivel<sup>2</sup>?
@@ -261,9 +267,47 @@ Those observation type names are prepended by the prefix defined in
 * Open the front cover
 * Connect the PC to the Parsivel<sup>2</sup> by an USB wire
 * Start a terminal application on the PC
-  - macOS: `screen`
+  - macOS: `screen /dev/tty.usb...`
   - Windows: 
+* If the connection is working properly, a data telegram is shown
+  every minute (or whatever interval is set up into the device).
 * Use the commands as described in the Parsivel<sup>2</sup> manual
+
+Note: While the USB connection is active, the RS485 interface is
+not sending data.
+
+## Troubleshooting
+
+* `ERROR thread 'PrecipMeter-Parsivel': opening connection to XXX.XXX.XXX.XXX:XXXX failed with ConnectionRefusedError [Errno 111] Connection refused, will be tried again`
+
+  May be there is another connection active to `XXX.XXX.XXX.XXX:XXXX`. 
+  You cannot have more than one connection at the same time.
+
+  Check the settings of the RS485 to ethernet converter. 
+  * For `type = tcp`: Is the TCP server mode enabled?
+  * For `type = udp`: Is sending UDP data enabled? Is the target IP address
+    correct?
+
+* No reasonable data
+
+  Make sure the telegram string is the same at the Parsivel<sup>2</sup> 
+  setting and in `weewx.conf`. To check that connect to the 
+  Parsivel<sup>2</sup> by USB and enter the command `CS/L<CR>`. 
+  That shows the current configuration. So you can compare.
+
+  If you use the `[[[loop]]]` subsection, make sure it reflects the 
+  Parsivel<sup>2</sup> telegram setting appropriately.
+  
+  Please take special care on typos.
+
+* The database is not created properly.
+
+  Check the key `schema` in the `[[precip_binding]]` section. It must
+  be `schema = user.precipmeter.schema`. 
+
+  Please note, that the database table is created at the very first run
+  after setting up the PrecipMeter extension. If you change the settings
+  afterwards, the database table schema is **not** changed. 
 
 ## References
 
