@@ -4,6 +4,8 @@ like Ott Parsivel<sup>2</sup>
 
 Please note: Actually the TCP connection is tested only.
 
+<p align="center"><img src="ott-hydromet-parsivel2-5467x.jpg" width="300px" /></p>
+
 ## Prerequisites
 
 ### Hardware
