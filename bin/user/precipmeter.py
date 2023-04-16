@@ -165,14 +165,15 @@ PARSIVEL = {
   ( 8,'MOR Sichtweite im Niederschlag',5,'00000','MOR','meter','group_distance'),
   (10,'Signalamplitude des Laserbandes',5,'00000','signal','count','group_count'),
   (11,'Anzahl der erkannten und validierten Partikel',5,'00000','particle','count','group_count'),
+  (34,'kinetische Energie',7,'000.000','energy','J/(m^2h)','group_rainpower'),
+  (35,'Schneehöhen-Intensität (volumenäquivalent)',7,'0000.00','snowRate','mm_per_hour','group_rainrate'),
+  # device monitoring data
   (12,'Temperatur im Sensorgehäuse',3,'000','housingTemp','degree_C','group_temperature'),
   (16,'Strom Sensorkopfheizung',4,'0.00','heatingCurrent','amp','group_amp'),
   (17,'Versorgungsspannung',4,'00.0','supplyVoltage','volt','group_volt'),
   (26,'Temperatur Leiterplatte',3,'000','circuitTemp','degree_C','group_temperature'),
   (27,'Temperatur im Sensorkopf rechts',3,'000','rightSensorTemp','degree_C','group_temperature'),
   (28,'Temperatur im Sensorkopf links',3,'000','leftSensorTemp','degree_C','group_temperature'),
-  (34,'kinetische Energie',7,'000.000','energy','J/(m^2h)','group_rainpower'),
-  (35,'Schneehöhen-Intensität (volumenäquivalent)',7,'0000.00','snowRate','mm_per_hour','group_rainrate'),
   # special data
   (60,'Anzahl aller erkannten Partikel',8,'00000000','particleCount','count','group_count'),
   (61,'Liste aller erkannten Partikel',13,'00.000;00.000',None,'mm;m/s',None),
@@ -926,7 +927,8 @@ class PrecipData(StdService):
                 if obsgroup:
                     weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
                     if (obsgroup in ('group_deltatime','group_elapsed',
-                                     'group_time','group_count') and
+                                     'group_time','group_count',
+                                     'group_wmo_ww','group_wmo_wawa') and
                         obstype not in weewx.accum.accum_dict):
                         _accum[obstype] = ACCUM_LAST
                 if (obstype.endswith('RainAccu') and
