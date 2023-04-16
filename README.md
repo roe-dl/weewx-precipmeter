@@ -263,6 +263,149 @@ Those observation type names are prepended by the prefix defined in
 * `MOR`: meteorological optical range (visibility)
 * `raw0000` to `raw1023`: raw data (no. 93)
 
+## Usage in skins
+
+Example table:
+
+```
+    <table class="table-striped">
+      <tr>
+        <th>Bezeichnung</th>
+        <th>Größe</th>
+        <th>Wert</th>
+        <th>WMO</th>
+        <th>Text</th>
+        <th>Icon</th>
+      </tr>
+      <tr>
+        <td>ottRainAccu</td>
+        <td></td>
+        <td>$current.ottRainAccu.format("%.2f")</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottRainAbs</td>
+        <td></td>
+        <td>$current.ottRainAbs.format("%.2f")</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottRainRate</td>
+        <td></td>
+        <td>$current.ottRainRate.format("%.3f")</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottSnowRate</td>
+        <td></td>
+        <td>$current.ottSnowRate.format("%.3f")</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottMOR</td>
+        <td>MOR</td>
+        <td>$current.ottMOR</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottDBZ</td>
+        <td>dBZ</td>
+        <td>$current.ottDBZ</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottWw</td>
+        <td>ww</td>
+        <td>$current.ottWw</td>
+        <td>$presentweather(ww=int($current.ottWw.raw)).wmo_symbol</td>
+        <td>$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text</td>
+        <td><img src="$relative_url/images/$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon"
+        width="70px" /></td>
+      </tr>
+      <tr>
+        <td>ottWawa</d>
+        <td>w<sub>a</sub>w<sub>a</sub></td>
+        <td>$current.ottWawa</td>
+        <td>$presentweather(wawa=int($current.ottWawa.raw)).wmo_symbol
+        ## $presentweather(wawa=int($current.ottWawa.raw)).text
+        </td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottMETAR</td>
+        <td></td>
+        <td>$current.ottMETAR.raw</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ottNWS</td>
+        <td></td>
+        <td>$current.ottNWS.raw</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ww</td>
+        <td>ww</td>
+        <td>$current.ww</td>
+        <td>$presentweather(ww=int($current.ww.raw)).wmo_symbol</td>
+        <td>
+        #if int($current.ww.raw)==0
+        $presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+        #else
+        $presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+        #end if
+        </td>
+        <td><img src="$relative_url/images/$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon"
+        width="70px" /></td>
+      </tr>
+      <tr>
+        <td>Wawa</d>
+        <td>w<sub>a</sub>w<sub>a</sub></td>
+        <td>$current.wawa</td>
+        <td>$presentweather(wawa=int($current.wawa.raw)).wmo_symbol
+        ## $presentweather(wawa=int($current.wawa.raw)).text
+        </td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>presentweatherStart</td>
+        <td></td>
+        <td>$current.presentweatherStart.raw</td>
+        <td></td>
+        <td>$current.presentweatherStart</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>presentweatherTime</td>
+        <td></td>
+        <td>$current.presentweatherTime</td>
+        <td></td>
+        <td>$current.presentweatherTime.long_form</td>
+        <td></td>
+      </tr>
+    </table>
+```
+
+The `$presentweather` tag is available from 
+[weewx-DWD](https://github.com/roe-dl/weewx-DWD).
 
 ## How to set up Ott Parsivel<sup>2</sup>?
 
