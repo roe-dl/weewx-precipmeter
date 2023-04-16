@@ -378,7 +378,7 @@ class PrecipThread(threading.Thread):
     
     def presentweather(self, ts, ww, wawa):
         WW2 = {
-            20: (50,51,52,53,54,55),
+            20: (50,51,52,53,54,55,58,59),
             21: (60,61,62,63,64,65),
             22: (70,71,72,73,74,75),
             23: (68,69),
@@ -708,8 +708,10 @@ class PrecipThread(threading.Thread):
         if record and self.set_weathercodes:
             try:
                 ww, wawa, since, elapsed = self.presentweather(ts, ww, wawa)
-                if ww is not None: record['ww'] = (ww,'byte','group_wmo_ww')
-                if wawa is not None: record['wawa'] = (wawa,'byte','group_wmo_wawa')
+                if ww is not None: 
+                    record['ww'] = (ww,'byte','group_wmo_ww')
+                if wawa is not None: 
+                    record['wawa'] = (wawa,'byte','group_wmo_wawa')
                 if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
                 if elapsed is not None: record['presentweatherTime'] = (elapsed,'second','group_deltatime')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
