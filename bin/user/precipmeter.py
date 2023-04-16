@@ -114,6 +114,7 @@ import weewx.accum
 ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
 ACCUM_LAST = { 'extractor':'last' }
+ACCUM_MAX = { 'extractor':'max' }
 
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
@@ -710,7 +711,7 @@ class PrecipThread(threading.Thread):
                 if ww is not None: record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: record['wawa'] = (wawa,'byte','group_wmo_wawa')
                 if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
-                if elapsed is not None: record['presentweatherTime'] = (elapsed,'second','group_elapsed')
+                if elapsed is not None: record['presentweatherTime'] = (elapsed,'second','group_deltatime')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 if self.next_presentweather_error<time.time():
                     logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
@@ -805,8 +806,12 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
-        weewx.units.obs_group_dict.setdefault('presentweatherTime','group_elapsed')
+        weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
         weewx.units.obs_group_dict.setdefault('visibility','group_distance')
+        weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
+        weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
+        weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
         if 'PrecipMeter' in config_dict:
             ct = 0
             for name in config_dict['PrecipMeter'].sections:
@@ -931,10 +936,11 @@ class PrecipData(StdService):
                 if obsgroup:
                     weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
                     if (obsgroup in ('group_deltatime','group_elapsed',
-                                     'group_time','group_count',
-                                     'group_wmo_ww','group_wmo_wawa') and
+                                     'group_time','group_count') and
                         obstype not in weewx.accum.accum_dict):
                         _accum[obstype] = ACCUM_LAST
+                    elif obsgroup in ('group_wmo_ww','group_wmo_wawa'):
+                        _accum[obstype] = ACCUM_MAX
                 if (obstype.endswith('RainAccu') and
                     obstype not in weewx.accum.accum_dict):
                     _accum[obstype] = ACCUM_LAST
