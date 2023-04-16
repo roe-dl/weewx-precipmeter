@@ -209,11 +209,15 @@ THIES = {
 #    Database schema                                                         #
 ##############################################################################
 
-exclude_from_summary = ['dateTime', 'usUnits', 'interval']
+exclude_from_summary = ['dateTime', 'usUnits', 'interval','presentweatherTime']
 
 table = [('dateTime',             'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
          ('usUnits',              'INTEGER NOT NULL'),
-         ('interval',             'INTEGER NOT NULL')] 
+         ('interval',             'INTEGER NOT NULL'),
+         ('ww',                   'INTEGER'),
+         ('wawa',                 'INTEGER'),
+         ('presentweatherStart',  'INTEGER'),
+         ('presentweatherTime',   'REAL')]
 
 def day_summaries(table):
     return [(e[0], 'scalar') for e in table
