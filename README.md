@@ -144,6 +144,7 @@ It is possible to configure more than one device.
 
 ### Authentication configuration
 
+Actually none.
 
 ### Device configuration
 
@@ -232,7 +233,8 @@ table or the `firstlast` accumulator, not both.
 * `visibility`: visibility, derived from `MOR`
 
 To convert the present weather code into a symbol or icon
-see [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
+look for the `$presentweather` tag provided by
+[weewx-DWD](https://github.com/roe-dl/weewx-DWD).
 
 The observation types `ww`, `wawa`, `presentweatherStart` and
 `presentweatherTime` are derived from the device that is set
@@ -257,13 +259,46 @@ Those observation type names are prepended by the prefix defined in
 * `METAR`: present weather code according to WMO table 4678
 * `NWS`: present weather code according to NWS
 * `rainRate`: rain rate
-* `rainAkku`: accumulated rain since power-on
+* `rainAccu`: accumulated rain since power-on
 * `rainAbs`: absolute amount of rain
 * `dBZ`: radar reflectivity factor
 * `MOR`: meteorological optical range (visibility)
 * `raw0000` to `raw1023`: raw data (no. 93)
 
 ## Usage in skins
+
+### Present weather icon
+
+If the disdrometer reports precipitation the respective icon is shown.
+Otherwise an icon representing the cloud coverage according to the
+forecast is shown.
+
+```
+<img src="$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon" />
+```
+
+### Present weather description
+
+If the disdrometer reports precipitation the respective description
+is displayed. Otherwise a description of the amount of cloud coverage
+is displayed. 
+
+Note: Without the `#if` statement the text `no cloud development`
+would always be displayed in case of no precipitation.
+
+```
+#if int($current.ww.raw)==0
+#set $icontxt=$presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+#else
+#set $icontxt=$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+#end if
+$icontxt
+```
+
+If you have a cloud coverage measuring instrument you can set `n` to
+the reading of that device instead of using the forecasted value.
+
+### Table of current disdrometer readings
 
 Example table:
 
@@ -452,7 +487,7 @@ not sending data.
 
   Please note, that the database table is created at the very first run
   after setting up the PrecipMeter extension. If you change the settings
-  afterwards, the database table schema is **not** changed. 
+  afterwards, the database table schema is **not** updated. 
 
 ## References
 
