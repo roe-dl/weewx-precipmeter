@@ -954,8 +954,8 @@ class PrecipData(StdService):
             obstype = thread_dict['prefix']+'Rain'
             obsgroup = 'group_rain'
             weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-            #table.append((obstype,obsgroup))
-            #_accum[obstype] = ACCUM_SUM
+            table.append((obstype,obsgroup))
+            _accum[obstype] = ACCUM_SUM
         # add accumulator entries
         if _accum:
             loginf ("accumulator dict for '%s': %s" % (thread_name,_accum))
