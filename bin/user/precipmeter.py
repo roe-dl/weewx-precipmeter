@@ -131,7 +131,7 @@ weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER
 # Ott Parsivel 1 + 2 
 # (not available for Parsivel 1: 34, 35, 60, 61)
 # group_rainpower: 1 J/(m^2h) = 1 Ws/(m^2h) = 1/3600 W/m^2
-PARSIVEL = {
+PARSIVEL = [
   #Nr,Beschreibung,Stellen,Form,Größe,Einheit,Gruppe
   # device information and identification
   (22,'Stationsname',10,'XXXXXXXXXX',None,'string',None),
@@ -181,9 +181,9 @@ PARSIVEL = {
   (90,'Feld N(d)',223,'00.000S',None,'log10(1/m^3 mm)',None),
   (91,'Feld v(d)',223,'00.000S','particleSpeed','meter_per_second','group_speed'),
   (93,'Rohdaten',4095,'000S','raw','count','group_count')
-}
+]
 
-THIES = {
+THIES = [
   ( 2,'Geräteadresse',2,'00',None,'string',None),
   ( 3,'Seriennummer',4,'NNNN','SNR','string',None),
   ( 4,'Software-Version',5,'N.NN',None,'string',None),
@@ -204,7 +204,7 @@ THIES = {
   (19,'1-Minuten-Wert Radarreflektivität',4,'NN.N','dBZ','dB','group_db'),
   (20,'Qualitätsmaß',3,'NNN',None,'percent','group_percent'),
   # ...
-}
+]
 
 ##############################################################################
 #    Database schema                                                         #
@@ -466,21 +466,23 @@ class PrecipThread(threading.Thread):
             # time span
             duration = ii[1]-ii[0]
             ii_wawa = ii[3]
-            for key,val in WAWA2.items():
-                if ii_wawa in val:
-                    ii_wawa = key
-                    break
-            if ii_wawa not in wawa_dict:
-                wawa_dict[ii_wawa] = 0
-            wawa_dict[ii_wawa] += duration
+            if ii_wawa or ii is not self.presentweather_list[0]:
+                for key,val in WAWA2.items():
+                    if ii_wawa in val:
+                        ii_wawa = key
+                        break
+                if ii_wawa not in wawa_dict:
+                    wawa_dict[ii_wawa] = 0
+                wawa_dict[ii_wawa] += duration
             ii_ww = ii[2]
-            for key,val in WW2.items():
-                if ii_ww in val:
-                    ii_ww = key
-                    break
-            if ii_ww not in ww_dict:
-                ww_dict[ii_ww] = 0
-            ww_dict[ii_ww] += duration
+            if ii_ww or ii is not self.presentweather_list[0]:
+                for key,val in WW2.items():
+                    if ii_ww in val:
+                        ii_ww = key
+                        break
+                if ii_ww not in ww_dict:
+                    ww_dict[ii_ww] = 0
+                ww_dict[ii_ww] += duration
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
         if len(wawa_dict)<=1 and len(ww_dict)<=1:
@@ -893,6 +895,21 @@ class PrecipData(StdService):
                         ct = None
                 elif ii=='%':
                     ct = []
+            thread_dict['loop'] = t
+        elif model=='thies' and 'loop' not in thread_dict:
+            t = []
+            for ii in THIES:
+                if 'prefix' in thread_dict and ii[4]:
+                    obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
+                else:
+                    obstype = ii[4]
+                if ii[6] in ('group_count','group_wmo_ww','group_wmo_wawa'):
+                    obsdatatype = 'INTEGER'
+                elif ii[5]=='string':
+                    obsdatatype = 'VARCHAR(%d)' % ii[2]
+                else:
+                    obsdatatype = 'REAL'
+                t.append(ii[0:4]+(obstype,)+ii[5:]+(obsdatatype,))
             thread_dict['loop'] = t
         else:
             # another device than Ott Parsivel2 or special configuration
