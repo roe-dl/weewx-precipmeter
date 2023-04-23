@@ -806,7 +806,7 @@ class PrecipData(StdService):
             self.log_failure = True
         self.threads = dict()
         self.dbm = None
-        self.archive_interval = 300
+        self.archive_interval = int(config_dict.get('StdArchive',configobj.ConfigObj()).get('archive_interval',300))
         sqlite_root = config_dict.get('DatabaseTypes',configobj.ConfigObj()).get('SQLite',configobj.ConfigObj()).get('SQLITE_ROOT','.')
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
@@ -829,7 +829,12 @@ class PrecipData(StdService):
                         ct += 1
             if ct>0 and __name__!='__main__':
                 self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
+                self.bind(weewx.END_ARCHIVE_PERIOD, self.end_archive_period)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
+        # Initialize variables for the special accumulators
+        self.old_accum = dict()
+        self.accum_start_ts = None
+        self.accum_end_ts = None
 
     def _create_thread(self, thread_name, thread_dict):
         host = thread_dict.get('host')
@@ -1030,11 +1035,7 @@ class PrecipData(StdService):
                         else:
                             data[key] = val
                     # special accumulators
-                    if val[2] in ('group_wmo_ww','group_wmo_wawa'):
-                        obs = (key,val[1],val[2])
-                        if obs not in self.threads[thread_name]['accum']:
-                            self.threads[thread_name]['accum'][obs] = [None]
-                        self.threads[thread_name]['accum'][obs].append(val[0])
+                    self.special_accumulator_add(thread_name,key,val)
                 ct += 1
         if data:
             for key in data:
@@ -1044,6 +1045,20 @@ class PrecipData(StdService):
             #print(data)
             return data
         return None
+    
+    def special_accumulator_add(self, thread_name, key, val):
+        """ add value to special accumulator """
+        if val[2] in ('group_wmo_ww','group_wmo_wawa'):
+            obs = (key,val[1],val[2])
+            if obs not in self.threads[thread_name]['accum']:
+                self.threads[thread_name]['accum'][obs] = [None]
+            self.threads[thread_name]['accum'][obs].append(val[0])
+        
+    def new_special_accumulator(self, timestamp):
+        """ initialize timespan for special accumulators """
+        self.accum_start_ts = weeutil.weeutil.startOfInterval(timestamp,
+                                                   self.archive_interval)
+        self.accum_end_ts = self.accum_start_ts + self.archive_interval
 
     def special_accumulator(self, obsunit, obsgroup, accum):
         """ accumulator for ww and wawa """
@@ -1061,41 +1076,55 @@ class PrecipData(StdService):
         if obsgroup in ('group_wmo_ww','group_wmo_wawa'):
             min_precip = 40 if obsgroup=='group_wmo_wawa' else 50
             _accum = []
-            for idx,val in enumerate(accum):
+            for idx,val1 in enumerate(accum):
                 try:
-                    v1 = accum[idx-1]>=min_precip
-                    v2 = val>=min_precip
-                    v3 = accum[idx+1]>=min_precip
+                    val2 = accum[idx+1]
+                    val3 = accum[idx+2]
+                    if val1 is None:
+                        v1 = True
+                    else:
+                        v1 = val1>=min_precip 
+                    v2 = val2>=min_precip
+                    v3 = val3>=min_precip
                     if ((v2 and (v1 or v3)) or
                         (not v2 and (not v1 or not v3)) or
-                        (accum[idx-1] is None)):
-                        _accum.append(val)
+                        (val1 is None)):
+                        _accum.append(val2)
                 except LookupError:
+                    break
+                except TypeError:
                     pass
             return max(_accum)
         # no accumulator for this observation type
         return None
     
-    def special_accumulators(self, record):
+    def special_accumulators(self, thread_name, thread_accum, timestamp):
         """ process special accumulators """
-        for thread_name in self.threads:
-            for obs in self.threads[thread_name]['accum']:
-                # accumulate values and set archive value
-                try:
-                    val = self.special_accumulator(obs[1],obs[2],self.threads[thread_name]['accum'][obs])
-                    if val is not None:
-                        record[obs[0]] = val
-                except (ValueError,TypeError,LookupError,ArithmeticError):
-                    pass
-                # re-initialize accumulator: remember the last value
-                try:
-                    last_val = self.threads[thread_name]['accum'][obs][-1]
-                except LookupError:
-                    last_val = None
-                self.threads[thread_name]['accum'][obs] = [last_val]
+        for obs in thread_accum:
+            # accumulate values and set archive value
+            try:
+                if __name__=='__main__':
+                    print('accumulator',obs,thread_accum[obs])
+                val = self.special_accumulator(obs[1],obs[2],thread_accum[obs])
+                if val is not None:
+                    self.old_accum[obs[0]] = val
+            except (ValueError,TypeError,LookupError,ArithmeticError) as e:
+                if self.log_failure:
+                    logerr("accumulator %s %s %s %s" % (thread_name,obs,e.__class__.__name__,e))
+            # re-initialize accumulator: remember the last value
+            try:
+                last_val = thread_accum[obs][-1]
+            except LookupError:
+                last_val = None
+            thread_accum[obs] = [last_val]
 
     def new_loop_packet(self, event):
+        timestamp = event.packet.get('dateTime',time.time())
         for thread_name in self.threads:
+            # if the LOOP packet belongs to a new archive interval, calculate
+            # the accumulated values
+            if self.accum_end_ts and timestamp>self.accum_end_ts:
+                self.special_accumulators(thread_name,self.threads[thread_name]['accum'],timestamp)
             reply = self._process_data(thread_name)
             if reply:
                 data = self._to_weewx(thread_name,reply,event.packet['usUnits'])
@@ -1110,7 +1139,18 @@ class PrecipData(StdService):
                 event.packet.update(data)
                 # count records received from the device
                 self.threads[thread_name]['reply_count'] += reply.get('count',(0,None,None))[0]
-                
+        # if the LOOP packet belongs to a new archive interval, initialize
+        # the new archive timespan
+        if not self.accum_end_ts or timestamp>self.accum_end_ts:
+            self.new_special_accumulator(timestamp)
+    
+    def end_archive_period(self, event):
+        """ called when all LOOP packets of the archive interval are
+            processed, but before the first LOOP packet of the new
+            archive interval
+        """
+        pass
+
     def new_archive_record(self, event):
         for thread_name in self.threads:
             # log error if we did not receive any data from the device
@@ -1121,8 +1161,9 @@ class PrecipData(StdService):
                 loginf("%s records received from %s during archive interval" % (self.threads[thread_name]['reply_count'],thread_name))
             # reset counter
             self.threads[thread_name]['reply_count'] = 0
-            # special accumulators
-            self.special_accumulators(event.record)
+        # special accumulators
+        event.record.update(self.old_accum)
+        self.old_accum = dict()
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
@@ -1157,7 +1198,7 @@ class PrecipArchive(StdService):
             self.log_success = True
             self.log_failure = True
         self.dbm = None
-        self.archive_interval = 300
+        self.archive_interval = int(config_dict.get('StdArchive',configobj.ConfigObj()).get('archive_interval',300))
         if 'PrecipMeter' in config_dict:
             if __name__!='__main__':
                 self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
@@ -1291,14 +1332,25 @@ if __name__ == '__main__':
         
         try:
             while True:
-                event = weewx.Event(weewx.NEW_LOOP_PACKET)
-                event.packet = {'usUnits':weewx.METRIC}
-                sv.new_loop_packet(event)
-                if len(event.packet)>1:
-                    print('============================================================')
-                    print(event.packet)
-                    print('============================================================')
-                time.sleep(10)
+                for i in range(5):
+                    event = weewx.Event(weewx.NEW_LOOP_PACKET)
+                    event.packet = {'usUnits':weewx.METRIC}
+                    if i==4:
+                        sv.accum_end_ts = time.time()-1
+                    sv.new_loop_packet(event)
+                    if len(event.packet)>1:
+                        print('=== LOOP ===================================================')
+                        print(event.packet)
+                        print('============================================================')
+                    time.sleep(10)
+                sv.end_archive_period(dict())
+                event = weewx.Event(weewx.NEW_ARCHIVE_RECORD)
+                event.record = {'usUnits':weewx.METRIC}
+                sv.new_archive_record(event)
+                print('=== ARCHIVE ================================================')
+                print(event.record)
+                print('============================================================')
+                break
         except Exception as e:
             print('**MAIN**',e.__class__.__name__,e)
         except KeyboardInterrupt:
