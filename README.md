@@ -178,6 +178,11 @@ includes all numeric values in the list of daily summeries tables. But
 WeeWX let you have an observation type either with a daily summeries
 table or the `firstlast` accumulator, not both.
 
+For the present weather `ww` and `wawa` this extension includes it's
+own accumulator. It omits readings that are opposite to the readings
+before and after. This is because the propability of error ist about
+3%. That is quite frequent. So it is handled specially.
+
 ### Example configuration
 
 ```
@@ -488,6 +493,14 @@ not sending data.
   Please note, that the database table is created at the very first run
   after setting up the PrecipMeter extension. If you change the settings
   afterwards, the database table schema is **not** updated. 
+
+* The device reports precipitation for one moment while there is no
+  precipitation around.
+
+  According to the specification about 97% of the present weather readings
+  are correct. That means, up to 3% can be erroneous. So you will see
+  some erroneous results, but that should be rare. Nothing can be done
+  about that. It's the limitation of the device.
 
 ## References
 

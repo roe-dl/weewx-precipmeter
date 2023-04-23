@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.1"
+VERSION = "0.2"
 
 """
 
@@ -115,6 +115,7 @@ ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
 ACCUM_LAST = { 'extractor':'last' }
 ACCUM_MAX = { 'extractor':'max' }
+ACCUM_NOOP = { 'extractor':'noop' }
 
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
@@ -936,6 +937,7 @@ class PrecipData(StdService):
         self.threads[thread_name]['queue'] = queue.Queue()
         self.threads[thread_name]['thread'] = PrecipThread(thread_name,thread_dict,self.threads[thread_name]['queue'],query_interval)
         self.threads[thread_name]['reply_count'] = 0
+        self.threads[thread_name]['accum'] = dict()
         # initialize observation types
         _accum = dict()
         for ii in thread_dict['loop']:
@@ -959,7 +961,7 @@ class PrecipData(StdService):
                         obstype not in weewx.accum.accum_dict):
                         _accum[obstype] = ACCUM_LAST
                     elif obsgroup in ('group_wmo_ww','group_wmo_wawa'):
-                        _accum[obstype] = ACCUM_MAX
+                        _accum[obstype] = ACCUM_NOOP
                 if (obstype.endswith('RainAccu') and
                     obstype not in weewx.accum.accum_dict):
                     _accum[obstype] = ACCUM_LAST
@@ -1027,6 +1029,12 @@ class PrecipData(StdService):
                             data[key] = ((val[0],1),val[1],val[2])
                         else:
                             data[key] = val
+                    # special accumulators
+                    if val[2] in ('group_wmo_ww','group_wmo_wawa'):
+                        obs = (key,val[1],val[2])
+                        if obs not in self.threads[thread_name]['accum']:
+                            self.threads[thread_name]['accum'][obs] = [None]
+                        self.threads[thread_name]['accum'][obs].append(val[0])
                 ct += 1
         if data:
             for key in data:
@@ -1036,6 +1044,55 @@ class PrecipData(StdService):
             #print(data)
             return data
         return None
+
+    def special_accumulator(self, obsunit, obsgroup, accum):
+        """ accumulator for ww and wawa """
+        # The first element of accum is always out of the previous archive
+        # interval. If it is the only element, no value is received during 
+        # the actual archive interval. So return None.
+        if len(accum)==1:
+            return None
+        # accumulator for ww and wawa
+        # The propability of error is about 3% according to the specification.
+        # Therefore erroneous readings are quite frequent. For this reason
+        # one single value of precipitation between values of no precipitation
+        # is considered erroneous. The same applies for one single value
+        # of no precipitation between values of precipitation.
+        if obsgroup in ('group_wmo_ww','group_wmo_wawa'):
+            min_precip = 40 if obsgroup=='group_wmo_wawa' else 50
+            _accum = []
+            for idx,val in enumerate(accum):
+                try:
+                    v1 = accum[idx-1]>=min_precip
+                    v2 = val>=min_precip
+                    v3 = accum[idx+1]>=min_precip
+                    if ((v2 and (v1 or v3)) or
+                        (not v2 and (not v1 or not v3)) or
+                        (accum[idx-1] is None)):
+                        _accum.append(val)
+                except LookupError:
+                    pass
+            return max(_accum)
+        # no accumulator for this observation type
+        return None
+    
+    def special_accumulators(self, record):
+        """ process special accumulators """
+        for thread_name in self.threads:
+            for obs in self.threads[thread_name]['accum']:
+                # accumulate values and set archive value
+                try:
+                    val = self.special_accumulator(obs[1],obs[2],self.threads[thread_name]['accum'][obs])
+                    if val is not None:
+                        record[obs[0]] = val
+                except (ValueError,TypeError,LookupError,ArithmeticError):
+                    pass
+                # re-initialize accumulator: remember the last value
+                try:
+                    last_val = self.threads[thread_name]['accum'][obs][-1]
+                except LookupError:
+                    last_val = None
+                self.threads[thread_name]['accum'][obs] = [last_val]
 
     def new_loop_packet(self, event):
         for thread_name in self.threads:
@@ -1053,7 +1110,7 @@ class PrecipData(StdService):
                 event.packet.update(data)
                 # count records received from the device
                 self.threads[thread_name]['reply_count'] += reply.get('count',(0,None,None))[0]
-
+                
     def new_archive_record(self, event):
         for thread_name in self.threads:
             # log error if we did not receive any data from the device
@@ -1064,6 +1121,8 @@ class PrecipData(StdService):
                 loginf("%s records received from %s during archive interval" % (self.threads[thread_name]['reply_count'],thread_name))
             # reset counter
             self.threads[thread_name]['reply_count'] = 0
+            # special accumulators
+            self.special_accumulators(event.record)
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
