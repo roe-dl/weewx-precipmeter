@@ -38,7 +38,20 @@ VERSION = "0.2"
         1 - dirty, but measurement is still possible
         2 - dirty, no measurement any more
         3 - laser defective
-    
+        
+    self.presentweather_list elements are a list of:
+    [0] - start timestamp of the weather condition
+    [1] - end timestamp of the weather condition (updated each time,
+          the same weather condition is reported as before)
+    [2] - ww value of the weather condition
+    [3] - wawa value of the weather conditon
+    [4] - if this weather condition is precipitation the start timestamp
+          of the precipitation (If the weather condition changes
+          during precipitation in intensity or kind, this value is
+          not the same as [0].)
+          if this weather condition is no precipitation the value is
+          None
+          
 """
 
 import threading 
@@ -207,6 +220,32 @@ THIES = [
   # ...
 ]
 
+WW2 = {
+            20: (50,51,52,53,54,55,58,59),
+            21: (60,61,62,63,64,65),
+            22: (70,71,72,73,74,75),
+            23: (68,69),
+            24: (56,57,66,67),
+            25: (80,81,82),
+            26: (85,86),
+            27: (87,88,89,90),
+            28: (41,42,43,44,45,46,47,48,49),
+            29: (95,96,97,98,99)
+}
+WAWA2 = {
+            20: (30,31,32,33,34,35),
+            21: (40,41,42),
+            22: (50,51,52,53,57,58),
+            23: (60,61,62,63,67,68,43,44),
+            24: (70,71,72,73,74,75,76,45,46),
+            25: (54,55,56,64,65,66,47,48),
+            26: (90,91,92,93,94,95,96)
+}
+
+WW2_REVERSED = { i:j for j,k in WW2.items() for i in k }
+WAWA2_REVERSED = { i:j for j,k in WAWA2.items() for i in k }
+
+
 ##############################################################################
 #    Database schema                                                         #
 ##############################################################################
@@ -219,7 +258,8 @@ table = [('dateTime',             'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
          ('ww',                   'INTEGER'),
          ('wawa',                 'INTEGER'),
          ('presentweatherStart',  'INTEGER'),
-         ('presentweatherTime',   'REAL')]
+         ('presentweatherTime',   'REAL'),
+         ('precipitationStart',   'INTEGER')]
 
 def day_summaries(table):
     return [(e[0], 'scalar') for e in table
@@ -256,6 +296,7 @@ class PrecipThread(threading.Thread):
         
         self.data_queue = data_queue
         self.query_interval = query_interval
+        self.device_interval = 60
 
         self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
         self.db_conn = None
@@ -269,6 +310,9 @@ class PrecipThread(threading.Thread):
                 self.presentweather_list = json.load(file)
         except FileNotFoundError:
             pass
+        # delete outdated elements
+        while len(self.presentweather_list)>0 and self.presentweather_list[0][1]<(time.time()-3600):
+            del self.presentweather_list[0]
         
         self.next_obs_errors = dict()
         self.last_rain = None
@@ -323,6 +367,7 @@ class PrecipThread(threading.Thread):
         loginf("thread '%s': shutdown requested" % self.name)
     
     def socket_open(self):
+        """ open connection to the device """
         if __name__ == '__main__':
             print('socket_open()','start',self.connection_type)
         try:
@@ -343,6 +388,7 @@ class PrecipThread(threading.Thread):
         
     
     def socket_close(self):
+        """ close connection to the device """
         if self.socket:
             try:
                 self.socket.close()
@@ -352,6 +398,7 @@ class PrecipThread(threading.Thread):
                 self.socket = None
     
     def db_open(self):
+        """ open thread present weather database """
         try:
             self.db_conn = sqlite3.connect(self.db_fn+'.sdb')
             cur = self.db_conn.cursor()
@@ -362,13 +409,14 @@ class PrecipThread(threading.Thread):
                 #reply = cur.execute('SELECT * FROM precipitation WHERE `start`>%d' % (time.time()-3600))
                 #self.presentweather_list = reply.fetchall()
             else:
-                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER)')
+                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER,`precipstart` INTEGER)')
             self.db_conn.commit()
             cur.close()
         except sqlite3.Error as e:
             logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
     
     def db_close(self):
+        """ close thread present weather database """
         try:
             if self.db_conn:
                 self.db_conn.close()
@@ -378,29 +426,15 @@ class PrecipThread(threading.Thread):
             self.db_conn = None
     
     def presentweather(self, ts, ww, wawa):
-        WW2 = {
-            20: (50,51,52,53,54,55,58,59),
-            21: (60,61,62,63,64,65),
-            22: (70,71,72,73,74,75),
-            23: (68,69),
-            24: (56,57,66,67),
-            25: (80,81,82),
-            26: (85,86),
-            27: (87,88,89,90),
-            28: (41,42,43,44,45,46,47,48,49),
-            29: (95,96,97,98,99)
-        }
-        WAWA2 = {
-            20: (30,31,32,33,34,35),
-            21: (40,41,42),
-            22: (50,51,52,53,57,58),
-            23: (60,61,62,63,67,68,43,44),
-            24: (70,71,72,73,74,75,76,45,46),
-            25: (54,55,56,64,65,66,47,48),
-            26: (90,91,92,93,94,95,96)
-        }
+        """ enhances ww and wawa and calculates `presentweatherStart`,
+            `presentweatherTime`, and `precipitationStart`
+        """
+        # A value of None is possible. Otherwise the value must be of
+        # type int.
         if ww is not None: ww = int(ww)
         if wawa is not None: wawa = int(wawa)
+        # check for inconsistency between ww and wawa if both values are
+        # present
         if ww is not None and wawa is not None:
             if (ww and not wawa) or (wawa and not ww):
                 logerr('ww wawa inconsistency ww=%02d wawa=%02d' % (ww,wawa))
@@ -411,21 +445,103 @@ class PrecipThread(threading.Thread):
             add = (wawa!=self.presentweather_list[-1][3] or
                    ww!=self.presentweather_list[-1][2])
         #print(1,ts,ww,wawa,add)
+        # Check for values that appear only once. They will be considered
+        # erroneous.
+        if add and len(self.presentweather_list)>1:
+            # There are at least 2 elements. 
+            try:
+                last_el = self.presentweather_list[-1]
+                prev_el = self.presentweather_list[-2]
+                if ((last_el[1]-last_el[0])<=self.device_interval and
+                    (wawa is not None or ww is not None):
+                    # The last value appears only once.
+                    is_precipitation = ((wawa is not None and wawa>=40) or
+                                        (ww is not None and ww>=50))
+                    """
+                    check_ww = ((ww is None) or
+                                (ww<50 and prev_el[2]<50 and last_el[2]>=50) or
+                                (ww>=50 and prev_el[2]>=50 and last_el[2]<50))
+                    check_wawa = ((wawa is None) or
+                                  (wawa<40 and prev_el[3]<40 and last_el[3]>=40) or
+                                  (wawa>=40 and prev_el[3]>=40 and last_el[3]<40))
+                    """
+                    if ((prev_el[4] and is_precipitation and not last_el[4]) or
+                        (not prev_el[4] and not is_precipitation and last_el[4])):
+                        # If there is one single reading of precipitation
+                        # between readings of no precipitation consider this
+                        # reading erroneous and remove it. The same applies
+                        # for one single reading of no precipitation between
+                        # readings of precipitation.
+                        add = False
+                        last_el[0] = int(ts-self.device_interval)
+                        last_el[2] = ww
+                        last_el[3] = wawa
+                        last_el[4] = prev_el[4]
+                        loginf("thread %s: discarded ww/wawa %s/%s between %s/%s and %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
+            except (LookupError,ValueError,TypeError,ArithmeticError):
+                pass
         # add a new record or update the timestamp
         if add:
             if len(self.presentweather_list)>0:
+                # There are already elements in the list. Save the last
+                # one to database and determine the start of precipitation
+                # timestamp
                 try:
                     cur = self.db_conn.cursor()
-                    reply = cur.execute('INSERT INTO precipitation VALUES (?,?,?,?)',tuple(self.presentweather_list[-1]))
+                    reply = cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?)',tuple(self.presentweather_list[-1]))
                     self.db_conn.commit()
                     cur.close()
                 except sqlite3.Error as e:
                     logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
                 except LookupError:
                     pass
-            self.presentweather_list.append([int(ts),int(ts),ww,wawa])
+                # determine start timestamp of precipitation
+                try:
+                    if wawa is not None:
+                        # Readings of wawa are available, so we use them.
+                        if wawa<40:
+                            # actually no precipitation 
+                            precipstart = None
+                        elif self.presentweather_list[-1][4] is not None:
+                            # start of precipitation timestamp is available
+                            # in the previous element
+                            precipstart = self.presentweather_list[-1][4]
+                        else:
+                            # precipitation started
+                            precipstart = int(ts-self.device_interval)
+                    elif ww is not None:
+                        # Alternatively use the readings of ww.
+                        if ww<50:
+                            # actually no precipitation 
+                            precipstart = None
+                        elif self.presentweather_list[-1][4] is not None:
+                            # start of precipitation timestamp is available
+                            # in the previous element
+                            precipstart = self.presentweather_list[-1][4]
+                        else:
+                            # precipitation started
+                            precipstart = int(ts-self.device_interval)
+                    else:
+                        # no actual weather condition available
+                        precipstart = None
+                except (LookupError,TypeError,ValueError,ArithmeticError):
+                    precipstart = None
+            else:
+                # The list is empty. That means there is no information about 
+                # the previous weather condition available.
+                if ((wawa is not None and wawa>=40) or
+                    (ww is not None and ww>=50)):
+                    # Precipitation is falling. As we do not know about
+                    # the past we use the start of the actual weather
+                    # condition as the start of the precipitation
+                    precipstart = int(ts-self.device_interval)
+                else:
+                    # actually no precipitation
+                    precipstart = None
+            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart])
         else:
             self.presentweather_list[-1][1] = int(ts)
+            precipstart = self.presentweather_list[-1][4]
         # remove the first element if it ends more than an hour ago
         if self.presentweather_list[0][1]<ts-3600:
             self.presentweather_list.pop(0)
@@ -434,7 +550,9 @@ class PrecipThread(threading.Thread):
             print('presentweather_list',self.presentweather_list)
         # start timestamp and duration of the current weather condition
         # (We do not care about the intensity of precipitation here.)
+        # observation types `presentweatherStart` and `presentweatherTime`
         try:
+            precip_duration = 0
             start = None
             for idx,ii in enumerate(reversed(self.presentweather_list)):
                 if idx:
@@ -446,6 +564,9 @@ class PrecipThread(threading.Thread):
                     ii_ww = WW2.get(ii[2],ii[2])
                     ii_wawa = WAWA2.get(ii[3],ii[3])
                 start = ii[0]
+                if ((ii[2] is not None and ii[2]>=50) or
+                    (ii[3] is not None and ii[3]>=40)):
+                    precip_duration += ii[1]-ii[0]
             elapsed = self.presentweather_list[-1][1]-start
             start = int(start)
         except (LookupError,TypeError,ValueError,ArithmeticError):
@@ -453,13 +574,13 @@ class PrecipThread(threading.Thread):
             start = None
         if len(self.presentweather_list)<2:
             # The weather did not change during the last hour.
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, precipstart
         if (len(self.presentweather_list)==2 and 
             not self.presentweather_list[0][2] and 
             not self.presentweather_list[0][3]):
             # No weather condition at the beginning of the last hour,
             # then one weather condition.
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, precipstart
         # which weather how long?
         wawa_dict = dict()
         ww_dict = dict()
@@ -468,31 +589,25 @@ class PrecipThread(threading.Thread):
             duration = ii[1]-ii[0]
             ii_wawa = ii[3]
             if ii_wawa or ii is not self.presentweather_list[0]:
-                for key,val in WAWA2.items():
-                    if ii_wawa in val:
-                        ii_wawa = key
-                        break
+                ii_wawa = WAWA2_REVERSED.get(ii_wawa,ii_wawa)
                 if ii_wawa not in wawa_dict:
                     wawa_dict[ii_wawa] = 0
                 wawa_dict[ii_wawa] += duration
             ii_ww = ii[2]
             if ii_ww or ii is not self.presentweather_list[0]:
-                for key,val in WW2.items():
-                    if ii_ww in val:
-                        ii_ww = key
-                        break
+                ii_ww = WW2_REVERSED.get(ii_ww,ii_ww)
                 if ii_ww not in ww_dict:
                     ww_dict[ii_ww] = 0
                 ww_dict[ii_ww] += duration
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
         if len(wawa_dict)<=1 and len(ww_dict)<=1:
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, precipstart
         # Is there actually some weather condition?
         if wawa or ww:
             # weather detected
             # TODO: detect showers
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, precipstart
         else:
             # The weather ended within the last hour. That means, the
             # weather code is 20...29.
@@ -513,7 +628,9 @@ class PrecipThread(threading.Thread):
             if (wawa_dur<=wawa_dur0) and (ww_dur<=ww_dur0):
                 return ww, wawa
             """
-            return ww_list[0][0], wawa_list[0][0], self.presentweather_list[-1][0], elapsed
+            new_ww = ww_list[0][0]
+            new_wawa = wawa_list[0][0]
+            return new_ww, new_wawa, self.presentweather_list[-1][0], elapsed, precipstart
     
     def getRecord(self, ot):
     
@@ -529,15 +646,14 @@ class PrecipThread(threading.Thread):
             # control the interval. We have to process the data as they
             # arrive. The select() function stops the thread until data
             # is available.
-            if ot=='once': return
             if not self.socket: self.socket_open()
             if not self.socket: 
                 time.sleep(self.query_interval)
                 return
             reply = b''
-            while True:
+            while self.running:
                 rlist, wlist, xlist = select.select([self.socket],[],[],5)
-                if not rlist: return
+                if not rlist or not self.running: return
                 if self.connection_type=='udp':
                     reply, source_addr = self.socket.recvfrom(8192)
                     if source_addr!=self.host: 
@@ -548,6 +664,7 @@ class PrecipThread(threading.Thread):
                     x = self.socket.recv(8192)
                     reply += x
                     if b'\n' in reply: break
+            if ot=='once': return
             reply = reply.decode('ascii',errors='ignore')
         elif self.connection_type in ('restful','http','https'):
             # restful service
@@ -555,16 +672,16 @@ class PrecipThread(threading.Thread):
             pass
         elif self.connection_type=='usb':
             # The device is connected by USB
-            if ot=='once': return
             if not self.file: 
                 self.file = open(self.port,'rt')
                 os.set_blocking(file.fileno(), False)
             if not self.file: return
             reply = ''
-            while '\n' not in reply:
+            while ('\n' not in reply) and self.running:
                 rlist, wlist, xlist = select.select([self.file],[],[],5)
-                if not rlist: return
+                if not rlist or not self.running: return
                 reply += file.read()
+            if ot=='once': return
         else:
             # simulator mode
             if ot=='once':
@@ -573,13 +690,25 @@ class PrecipThread(threading.Thread):
             else:
                 temp = int(round(25+2*math.sin((time.time()%30)/30*math.pi),0))
                 since = time.time()-self.start_ts
-                if since<30: self.rain_simulator = 0
-                if since>120 or since<30:
-                    ww = 0
+                if False:
+                    # erroneous reading
+                    self.rain_simulator = 0
+                    if since==30:
+                        ww = 51
+                    else:
+                        ww = 0
                 else:
-                    ww = 51
-                    self.rain_simulator += 0.25
+                    # 30s no precipitation, then 90s rain, then again no
+                    # precipitation
+                    if since<30: self.rain_simulator = 0
+                    if since>120 or since<30:
+                        ww = 0
+                    else:
+                        ww = 51
+                        self.rain_simulator += 0.25
                 reply = "200248;000.000;%7.2f;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (self.rain_simulator,ww,temp)
+        
+        if not self.running: return
         
         # process data
         
@@ -594,6 +723,8 @@ class PrecipThread(threading.Thread):
         if self.model in ('ott-parsivel','ott-parsivel1','ott-parsivel2'):
             if ';' not in reply: reply = ''
             for ii in self.telegram_list:
+                # thread stop requested
+                if not self.running: return
                 # if there are not enough fields within the data telegram
                 # stop processing
                 if not reply: break
@@ -608,6 +739,12 @@ class PrecipThread(threading.Thread):
                     reply = x[1]
                 except LookupError:
                     reply = ''
+                # not enough data
+                # (for example if the connection starts inmidst of a
+                # telegram)
+                if val=='\r\n':
+                    record = dict()
+                    break
                 # convert the field value string to the appropriate data type
                 try:
                     if ii[0]==19:
@@ -636,8 +773,9 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
-                    # rain
+                    # additional processing 
                     if ii[0]==2:
+                        # rain
                         # TODO: prefix
                         if self.last_rain is not None:
                             rain = val[0]-self.last_rain
@@ -646,12 +784,16 @@ class PrecipThread(threading.Thread):
                             record['ottRain'] = (rain,'mm','group_rain')
                         self.last_rain = val[0]
                     elif ii[0]==18:
+                        # sensor state
                         if self.last_sensorState is None or self.last_sensorState!=val[0]:
                             if val[0]>0:
                                 logerr("thread '%s': sensor error %s" % (self.name,val[0]))
                             elif self.last_sensorState is None or self.last_sensorState>0:
                                 loginf("thread '%s': sensor ok" % self.name)
                         self.last_sensorState = val[0]
+                    elif ii[0]==9:
+                        # data sending interval
+                        self.device_interval = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
@@ -663,6 +805,8 @@ class PrecipThread(threading.Thread):
             if reply[0]==chr(2): reply = reply[1:]
             if ';' not in reply: reply = ''
             for ii in self.telegram_list:
+                # thread stop requested
+                if not self.running: return
                 # if there are not enough fields within the data telegram
                 # stop processing
                 if not reply: break
@@ -710,13 +854,16 @@ class PrecipThread(threading.Thread):
             self.shutDown()
         if record and self.set_weathercodes:
             try:
-                ww, wawa, since, elapsed = self.presentweather(ts, ww, wawa)
+                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa)
                 if ww is not None: 
                     record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: 
                     record['wawa'] = (wawa,'byte','group_wmo_wawa')
-                if since: record['presentweatherStart'] = (since,'unix_epoch','group_time')
-                if elapsed is not None: record['presentweatherTime'] = (elapsed,'second','group_deltatime')
+                if since: 
+                    record['presentweatherStart'] = (since,'unix_epoch','group_time')
+                if elapsed is not None: 
+                    record['presentweatherTime'] = (elapsed,'second','group_deltatime')
+                record['precipitationStart'] = (pstart,'unix_epoch','group_time')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 if self.next_presentweather_error<time.time():
                     logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
@@ -811,11 +958,13 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
+        weewx.units.obs_group_dict.setdefault('precipitationStart','group_time')
         weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
         weewx.units.obs_group_dict.setdefault('visibility','group_distance')
         weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('precipitationStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
         if 'PrecipMeter' in config_dict:
             ct = 0
@@ -1350,7 +1499,7 @@ if __name__ == '__main__':
                 print('=== ARCHIVE ================================================')
                 print(event.record)
                 print('============================================================')
-                break
+                #break
         except Exception as e:
             print('**MAIN**',e.__class__.__name__,e)
         except KeyboardInterrupt:
