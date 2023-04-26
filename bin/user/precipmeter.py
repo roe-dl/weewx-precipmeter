@@ -247,6 +247,21 @@ WAWA2 = {
 WW2_REVERSED = { i:j for j,k in WW2.items() for i in k }
 WAWA2_REVERSED = { i:j for j,k in WAWA2.items() for i in k }
 
+WW_INTENSITY = [
+    set(),
+    (50,51,58,60,61,68,70,71,77,83,87,89,91,93),
+    (52,53,59,62,63,69,72,73,77,84,88,90,92,94),
+    (54,55,59,64,65,69,74,75,77,84,88,90,92,94)
+]
+WAWA_INTENSITY = [
+    (40,50,60,70,80),
+    (40,43,45,47,51,54,57,61,64,67,71,74,77,87,89),
+    (41,43,45,47,52,55,58,62,65,68,72,75,77,88,89),
+    (42,44,46,48,53,56,58,63,66,68,73,76,77,88,89)
+]
+
+WW_INTENSITY_REVERSED = { i:3-j for j,k in enumerate(reversed(WW_INTENSITY)) for i in k }
+WAWA_INTENSITY_REVERSED = { i:3-j for j,k in enumerate(reversed(WAWA_INTENSITY)) for i in k }
 
 ##############################################################################
 #    Database schema                                                         #
@@ -476,12 +491,12 @@ class PrecipThread(threading.Thread):
                         # reading erroneous and remove it. The same applies
                         # for one single reading of no precipitation between
                         # readings of precipitation.
+                        loginf("thread %s: discarded ww/wawa %s/%s between %s/%s and %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
                         add = False
                         last_el[0] = int(ts-self.device_interval)
                         last_el[2] = ww
                         last_el[3] = wawa
                         last_el[4] = prev_el[4]
-                        loginf("thread %s: discarded ww/wawa %s/%s between %s/%s and %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         # add a new record or update the timestamp
@@ -585,10 +600,14 @@ class PrecipThread(threading.Thread):
             # No weather condition at the beginning of the last hour,
             # then one weather condition.
             return ww, wawa, start, elapsed, precipstart
+        """
         # which weather how long?
         wawa_dict = dict()
         ww_dict = dict()
         for ii in self.presentweather_list:
+            # If the thread is to be shut down, return immediately.
+            if not self.running:
+                return ww, wawa, start, elapsed, precipstart
             # time span
             duration = ii[1]-ii[0]
             ii_wawa = ii[3]
@@ -607,34 +626,80 @@ class PrecipThread(threading.Thread):
         # always rain or always snow etc.)
         if len(wawa_dict)<=1 and len(ww_dict)<=1:
             return ww, wawa, start, elapsed, precipstart
+        """
         # Is there actually some weather condition?
         if wawa or ww:
             # weather detected
             # TODO: detect showers
             return ww, wawa, start, elapsed, precipstart
+        elif elapsed>3600:
+            # more than one hour no precipitation
+            return ww, wawa, start, elapsed, precipstart
         else:
-            # The weather ended within the last hour. That means, the
+            # The precipitation ended within the last hour. That means, the
             # weather code is 20...29.
+            """
             if 0 in wawa_dict:
                 wawa_dict[0] -= elapsed
             if 0 in ww_dict:
                 ww_dict[0] -= elapsed
+            """
+            #
+            wawa_dict = dict()
+            ww_dict = dict()
+            dursum = 0
+            intsum = 0
+            for ii in reversed(self.presentweather_list[:-1]):
+                # If the thread is to be shut down, return immediately.
+                if not self.running:
+                    return ww, wawa, start, elapsed, precipstart
+                duration = ii[1]-ii[0]
+                pstart = ii[4]
+                if not pstart:
+                    break
+                if ii[2] is not None:
+                    intensity = WW_INTENSITY_REVERSED.get(ii[2],0)
+                elif ii[3] is not None:
+                    intensity = WAWA_INTENSITY_REVERSED.get(ii[3],0)
+                else:
+                    intensity = 0
+                dursum += duration
+                intsum += duration*intensity
+                ii_wawa = ii[3]
+                if ii_wawa or ii is not self.presentweather_list[0]:
+                    ii_wawa = WAWA2_REVERSED.get(ii_wawa,ii_wawa)
+                    if ii_wawa not in wawa_dict:
+                        wawa_dict[ii_wawa] = 0
+                    wawa_dict[ii_wawa] += duration
+                ii_ww = ii[2]
+                if ii_ww or ii is not self.presentweather_list[0]:
+                    ii_ww = WW2_REVERSED.get(ii_ww,ii_ww)
+                    if ii_ww not in ww_dict:
+                        ww_dict[ii_ww] = 0
+                    ww_dict[ii_ww] += duration
+            intensity_avg = intsum/dursum
             # sort weather conditions by time
             wawa_list = sorted(wawa_dict.items(),key=lambda x:x[1],reverse=True)
             ww_list = sorted(ww_dict.items(),key=lambda x:x[1],reverse=True)
-            """
-            # sum of time
-            wawa_dur = sum([x[1] for x in wawa_list if x[1] is not None and x[1]!=0])
-            wawa_dur0 = sum([x[1] for x in wawa_list if x[1] is not None and x[1]==0])
-            ww_dur = sum([x[1] for x in ww_list if x[1] is not None and x[1]!=0])
-            ww_dur0 = sum([x[1] for x in ww_list if x[1] is not None and x[1]==0])
-            #
-            if (wawa_dur<=wawa_dur0) and (ww_dur<=ww_dur0):
-                return ww, wawa
-            """
-            new_ww = ww_list[0][0]
-            new_wawa = wawa_list[0][0]
-            return new_ww, new_wawa, self.presentweather_list[-1][0], elapsed, precipstart
+            # How intense or long the precipitation was?
+            # Intensity: 0 - unknown, 1 - light, 2 - moderate, 3 - heavy
+            is2 = False
+            if intensity_avg>=2.5:
+                # heavy precipitation
+                if dursum>=300: is2 = True
+            elif intensity_avg>=1.5:
+                # moderate precipitation
+                if dursum>=600: is2 = True
+            elif intensity_avg>=0.5:
+                # light precipitation
+                if dursum>=900: is2 = True
+            # If the precipitation intensity and duration before suggest a 
+            # "state after precipitation" return weather code 20...29
+            # otherwise 00.
+            if is2:
+                ww = ww_list[0][0]
+                wawa = wawa_list[0][0]
+            return ww, wawa, start, elapsed, precipstart
     
     def getRecord(self, ot):
     
@@ -648,27 +713,48 @@ class PrecipThread(threading.Thread):
             # UDP or TCP connection
             # In this case the device sends data by itself. We cannot 
             # control the interval. We have to process the data as they
-            # arrive. The select() function stops the thread until data
+            # arrive. The select() function pauses the thread until data
             # is available.
-            if not self.socket: self.socket_open()
             if not self.socket: 
+                # If the socket is not opened, open it.
+                self.socket_open()
+            if not self.socket: 
+                # The socket could not be opened. Wait and then return,
+                # which means to try it again.
                 time.sleep(self.query_interval)
                 return
             reply = b''
             while self.running:
-                rlist, wlist, xlist = select.select([self.socket],[],[],5)
-                if not rlist or not self.running: return
-                if self.connection_type=='udp':
-                    reply, source_addr = self.socket.recvfrom(8192)
-                    if source_addr!=self.host: 
-                        logerr("thread '%s': received data from %s but %s expected" %(self.name,source_addr,self.host))
-                        return
-                    break
-                else:
-                    x = self.socket.recv(8192)
-                    reply += x
-                    if b'\n' in reply: break
+                # pause thread and wait for data from the device
+                rlist, wlist, xlist = select.select([self.socket],[],[],self.query_interval)
+                # If shutdown is requested, log and return
+                if not self.running:
+                    loginf("thread '%s': self.running==False getRecord() select() r %s w %s x %s" % (self.name,rlist,wlist,xlist))
+                    return
+                # No data received until timeout --> return
+                if not rlist: 
+                    return
+                # get available data from the device
+                try:
+                    if self.connection_type=='udp':
+                        # UDP connection
+                        reply, source_addr = self.socket.recvfrom(8192)
+                        if source_addr!=self.host: 
+                            logerr("thread '%s': received data from %s but %s expected" %(self.name,source_addr,self.host))
+                            return
+                        break
+                    else:
+                        # TCP connection
+                        x = self.socket.recv(8192)
+                        reply += x
+                        if b'\n' in reply: break
+                except OSError as e:
+                    logerr("thread '%s': error receiving data %s %s" % (self.name,e.__class__.__name__,e))
+                    self.socket_close()
+                    return
+            # The very first telegram may be incomplete, so do not process it.
             if ot=='once': return
+            # Convert bytes to ASCII string
             reply = reply.decode('ascii',errors='ignore')
         elif self.connection_type in ('restful','http','https'):
             # restful service
@@ -705,14 +791,16 @@ class PrecipThread(threading.Thread):
                     # 30s no precipitation, then 90s rain, then again no
                     # precipitation
                     if since<30: self.rain_simulator = 0
-                    if since>120 or since<30:
+                    if since>120 or since<30: 
                         ww = 0
                     else:
-                        ww = 51
+                        ww = 53
                         self.rain_simulator += 0.25
                 reply = "200248;000.000;%7.2f;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (self.rain_simulator,ww,temp)
         
-        if not self.running: return
+        if not self.running: 
+            loginf("thread '%s': self.running==False getRecord() after reading data" % self.name)
+            return
         
         # process data
         
@@ -728,7 +816,9 @@ class PrecipThread(threading.Thread):
             if ';' not in reply: reply = ''
             for ii in self.telegram_list:
                 # thread stop requested
-                if not self.running: return
+                if not self.running: 
+                    loginf("thread '%s': self.running==False getRecord() for telegram_list loop" % self.name)
+                    return
                 # if there are not enough fields within the data telegram
                 # stop processing
                 if not reply: break
@@ -856,6 +946,11 @@ class PrecipThread(threading.Thread):
         else:
             logerr("thread '%s': unknown model '%s'" % (self.name,self.model))
             self.shutDown()
+
+        if not self.running: 
+            loginf("thread '%s': self.running==False getRecord() after telegram_list loop" % self.name)
+            return
+
         if record and self.set_weathercodes:
             try:
                 ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa)
@@ -925,11 +1020,17 @@ class PrecipThread(threading.Thread):
             self.getRecord('once')
             while self.running:
                 self.getRecord('loop')
-                if self.connection_type not in ('udp','tcp'):
+                if self.connection_type in ('udp','tcp'):
+                    if not self.socket:
+                        self.getRecord('once')
+                else:
+                    if not self.running: break
                     time.sleep(self.query_interval)
+            loginf("thread '%s' main loop ended" % self.name)
         except Exception as e:
             logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
         finally:
+            loginf("thread '%s': about to stop" % self.name)
             # remember the present weather codes of the last hour
             try:
                 with open(self.db_fn+'.json','wt') as file:
@@ -937,9 +1038,22 @@ class PrecipThread(threading.Thread):
             except Exception as e:
                 logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
             # close socket and file descriptors
-            if self.socket: self.socket_close()
-            if self.file: self.file.close()
-            self.db_close()
+            if self.socket: 
+                try:
+                    self.socket_close()
+                except Exception as e:
+                    logerr("thread '%s': error closing socket %s %s" % (self.name,e.__class__.__name__,e))
+            if self.file: 
+                try:
+                    self.file.close()
+                except Exception as e:
+                    logerr("thread '%s': error closing file %s %s" % (self.name,e.__class__.__name__,e))
+            # close database connection
+            try:
+                self.db_close()
+            except Exception as e:
+                logerr("thread '%s': error closing database connection %s %s" % (self.name,e.__class__.__name__,e))
+            # done
             loginf("thread '%s' stopped" % self.name)
 
 
@@ -1277,6 +1391,11 @@ class PrecipData(StdService):
     def presentweather(self, obstype, record):
         """ Postprecess ww and wawa. """
         if obstype not in record: return
+        ts = record.get('dateTime',time.time())
+        # According to the standards a thunderstorm ends when the last
+        # lightning strike appeared more than 10 minutes ago.
+        if self.lightning_strike_ts<(ts-600):
+            self.lightning_strike_ts = 0
         val = record[obstype]
         if obstype=='ww' and val[2]=='group_wmo_ww':
             if self.lightning_strike_ts:
