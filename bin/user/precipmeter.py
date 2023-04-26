@@ -239,7 +239,9 @@ WAWA2 = {
             23: (60,61,62,63,67,68,43,44),
             24: (70,71,72,73,74,75,76,45,46),
             25: (54,55,56,64,65,66,47,48),
-            26: (90,91,92,93,94,95,96)
+            26: (90,91,92,93,94,95,96),
+            # reserved values
+            -1: (6,7,8,9,13,14,15,16,17,19,36,37,38,39,49,59,69,79,88,97,98)
 }
 
 WW2_REVERSED = { i:j for j,k in WW2.items() for i in k }
@@ -362,12 +364,12 @@ class PrecipThread(threading.Thread):
             logerr("thread '%s': unknown connection type '%s'" % (self.name,self.connection_type))
 
     def shutDown(self):
-        """ request thread shutdown """
+        """ Request thread shutdown. """
         self.running = False
         loginf("thread '%s': shutdown requested" % self.name)
     
     def socket_open(self):
-        """ open connection to the device """
+        """ Open connection to the device. """
         if __name__ == '__main__':
             print('socket_open()','start',self.connection_type)
         try:
@@ -388,7 +390,7 @@ class PrecipThread(threading.Thread):
         
     
     def socket_close(self):
-        """ close connection to the device """
+        """ Close connection to the device. """
         if self.socket:
             try:
                 self.socket.close()
@@ -398,7 +400,7 @@ class PrecipThread(threading.Thread):
                 self.socket = None
     
     def db_open(self):
-        """ open thread present weather database """
+        """ Open thread present weather database. """
         try:
             self.db_conn = sqlite3.connect(self.db_fn+'.sdb')
             cur = self.db_conn.cursor()
@@ -416,7 +418,7 @@ class PrecipThread(threading.Thread):
             logerr("thread '%s': SQLITE %s %s" % (self.name,e.__class__.__name__,e))
     
     def db_close(self):
-        """ close thread present weather database """
+        """ Close thread present weather database. """
         try:
             if self.db_conn:
                 self.db_conn.close()
@@ -426,7 +428,9 @@ class PrecipThread(threading.Thread):
             self.db_conn = None
     
     def presentweather(self, ts, ww, wawa):
-        """ enhances ww and wawa and calculates `presentweatherStart`,
+        """ Postprocessing of ww and wawa.
+            
+            enhances ww and wawa and calculates `presentweatherStart`,
             `presentweatherTime`, and `precipitationStart`
         """
         # A value of None is possible. Otherwise the value must be of
@@ -453,7 +457,7 @@ class PrecipThread(threading.Thread):
                 last_el = self.presentweather_list[-1]
                 prev_el = self.presentweather_list[-2]
                 if ((last_el[1]-last_el[0])<=self.device_interval and
-                    (wawa is not None or ww is not None):
+                    (wawa is not None or ww is not None)):
                     # The last value appears only once.
                     is_precipitation = ((wawa is not None and wawa>=40) or
                                         (ww is not None and ww>=50))
@@ -749,12 +753,12 @@ class PrecipThread(threading.Thread):
                 try:
                     if ii[0]==19:
                         # date and time
+                        # TODO
                         val = (...,'unixepoch','group_time')
                     elif ii[0]==34:
                         # energy
                         # (According to the unit J/(m^2h) it is not energy
                         # but power.)
-                        # TODO: unit group
                         val = (float(val)/3600.0,'watt_per_meter_squared','group_rainpower')
                     elif ii[5]=='string':
                         # string
@@ -984,8 +988,10 @@ class PrecipData(StdService):
         self.old_accum = dict()
         self.accum_start_ts = None
         self.accum_end_ts = None
+        self.lightning_strike_ts = 0
 
     def _create_thread(self, thread_name, thread_dict):
+        """ Create device connection thread. """
         host = thread_dict.get('host')
         query_interval = thread_dict.get('query_interval',5)
         # IP address is mandatory.
@@ -1138,7 +1144,7 @@ class PrecipData(StdService):
         return True
         
     def shutDown(self):
-        """ shutdown threads """
+        """ Shutdown threads. """
         for ii in self.threads:
             try:
                 self.threads[ii]['thread'].shutDown()
@@ -1146,6 +1152,7 @@ class PrecipData(StdService):
                 pass
         
     def _process_data(self, thread_name):
+        """ Get and process data from the threads. """
         AVG_GROUPS = ('group_temperature','group_db','group_distance','group_volt')
         MAX_GROUPS = ('group_wmo_ww','group_wmo_wawa')
         # get collected data
@@ -1196,7 +1203,7 @@ class PrecipData(StdService):
         return None
     
     def special_accumulator_add(self, thread_name, key, val):
-        """ add value to special accumulator """
+        """ Add value to special accumulator. """
         if val[2] in ('group_wmo_ww','group_wmo_wawa'):
             obs = (key,val[1],val[2])
             if obs not in self.threads[thread_name]['accum']:
@@ -1204,13 +1211,13 @@ class PrecipData(StdService):
             self.threads[thread_name]['accum'][obs].append(val[0])
         
     def new_special_accumulator(self, timestamp):
-        """ initialize timespan for special accumulators """
+        """ Initialize timespan for special accumulators. """
         self.accum_start_ts = weeutil.weeutil.startOfInterval(timestamp,
                                                    self.archive_interval)
         self.accum_end_ts = self.accum_start_ts + self.archive_interval
 
     def special_accumulator(self, obsunit, obsgroup, accum):
-        """ accumulator for ww and wawa """
+        """ Accumulator for ww and wawa. """
         # The first element of accum is always out of the previous archive
         # interval. If it is the only element, no value is received during 
         # the actual archive interval. So return None.
@@ -1248,7 +1255,7 @@ class PrecipData(StdService):
         return None
     
     def special_accumulators(self, thread_name, thread_accum, timestamp):
-        """ process special accumulators """
+        """ Process special accumulators. """
         for obs in thread_accum:
             # accumulate values and set archive value
             try:
@@ -1267,7 +1274,29 @@ class PrecipData(StdService):
                 last_val = None
             thread_accum[obs] = [last_val]
 
+    def presentweather(self, obstype, record):
+        """ Postprecess ww and wawa. """
+        if obstype not in record: return
+        val = record[obstype]
+        if obstype=='ww' and val[2]=='group_wmo_ww':
+            if self.lightning_strike_ts:
+                if val[0]==79:
+                    record[obstype] = (96,val[1],val[2])
+                elif val[0]>=50 and val<=90:
+                    record[obstype] = (95,val[1],val[2])
+                elif val[0]<17:
+                    record[obstype] = (17,val[1],val[2])
+        elif obstype=='wawa' and val[2]=='group_wmo_wawa':
+            if self.lightning_strike_ts:
+                if val[0]==89:
+                    record[obstype] = (93,val[1],val[2])
+                elif val[0]>=40 and val[0]<90:
+                    record[obstype] = (92,val[1],val[2])
+                else:
+                    record[obstype] = (90,val[1],val[2])
+    
     def new_loop_packet(self, event):
+        """ Process LOOP event. """
         timestamp = event.packet.get('dateTime',time.time())
         for thread_name in self.threads:
             # if the LOOP packet belongs to a new archive interval, calculate
@@ -1276,6 +1305,14 @@ class PrecipData(StdService):
                 self.special_accumulators(thread_name,self.threads[thread_name]['accum'],timestamp)
             reply = self._process_data(thread_name)
             if reply:
+                try:
+                    self.presentweather('ww',reply)
+                except (LookupError,ValueError,TypeError,ArithmeticError):
+                    pass
+                try:
+                    self.presentweather('wawa',reply)
+                except (LookupError,ValueError,TypeError,ArithmeticError):
+                    pass
                 data = self._to_weewx(thread_name,reply,event.packet['usUnits'])
                 # log 
                 if self.debug>=3: 
@@ -1292,15 +1329,21 @@ class PrecipData(StdService):
         # the new archive timespan
         if not self.accum_end_ts or timestamp>self.accum_end_ts:
             self.new_special_accumulator(timestamp)
+        # thunderstorm
+        if 'lightning_strike_count' in event.packet and event.packet['lightning_strike_count']>0:
+            self.lightning_strike_ts = event.packet.get('dateTime',time.time())
     
     def end_archive_period(self, event):
-        """ called when all LOOP packets of the archive interval are
+        """ Process end of archive period event. 
+        
+            called when all LOOP packets of the archive interval are
             processed, but before the first LOOP packet of the new
             archive interval
         """
         pass
 
     def new_archive_record(self, event):
+        """ Process new archive record event. """
         for thread_name in self.threads:
             # log error if we did not receive any data from the device
             if self.log_failure and not self.threads[thread_name]['reply_count']:
@@ -1313,6 +1356,11 @@ class PrecipData(StdService):
         # special accumulators
         event.record.update(self.old_accum)
         self.old_accum = dict()
+        # thunderstorm
+        if 'lightning_strike_count' in event.record and event.record['lightning_strike_count']>0:
+            self.lightning_strike_ts = event.record.get('dateTime',time.time())
+        else:
+            self.lightning_strike_ts = 0
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
