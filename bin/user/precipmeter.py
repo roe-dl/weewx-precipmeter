@@ -220,6 +220,8 @@ THIES = [
   # ...
 ]
 
+# "state after something" weather codes
+
 WW2 = {
             20: (50,51,52,53,54,55,58,59),
             21: (60,61,62,63,64,65),
@@ -247,21 +249,25 @@ WAWA2 = {
 WW2_REVERSED = { i:j for j,k in WW2.items() for i in k }
 WAWA2_REVERSED = { i:j for j,k in WAWA2.items() for i in k }
 
+# precipitation intensity
+
 WW_INTENSITY = [
     set(),
-    (50,51,58,60,61,68,70,71,77,83,87,89,91,93),
-    (52,53,59,62,63,69,72,73,77,84,88,90,92,94),
-    (54,55,59,64,65,69,74,75,77,84,88,90,92,94)
+    (50,51,58,60,61,68,70,71,77,83,87,89,91,93), # light
+    (52,53,59,62,63,69,72,73,77,84,88,90,92,94), # moderate
+    (54,55,59,64,65,69,74,75,77,84,88,90,92,94), # heavy
+    set()
 ]
 WAWA_INTENSITY = [
-    (40,50,60,70,80),
-    (40,43,45,47,51,54,57,61,64,67,71,74,77,87,89),
-    (41,43,45,47,52,55,58,62,65,68,72,75,77,88,89),
-    (42,44,46,48,53,56,58,63,66,68,73,76,77,88,89)
+    (40,50,60,70,80),                                  # unknown
+    (41,43,45,47,51,54,57,61,64,67,71,74,77,81,85,89), # light
+    (41,43,45,47,52,55,58,62,65,68,72,75,77,82,86,89), # moderate
+    (42,44,46,48,53,56,58,63,66,68,73,76,77,83,87,89), # heavy
+    (84,)                                              # extreme
 ]
 
-WW_INTENSITY_REVERSED = { i:3-j for j,k in enumerate(reversed(WW_INTENSITY)) for i in k }
-WAWA_INTENSITY_REVERSED = { i:3-j for j,k in enumerate(reversed(WAWA_INTENSITY)) for i in k }
+WW_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WW_INTENSITY)) for i in k }
+WAWA_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WAWA_INTENSITY)) for i in k }
 
 ##############################################################################
 #    Database schema                                                         #
@@ -649,6 +655,7 @@ class PrecipThread(threading.Thread):
             ww_dict = dict()
             dursum = 0
             intsum = 0
+            prev_precip = False
             for ii in reversed(self.presentweather_list[:-1]):
                 # If the thread is to be shut down, return immediately.
                 if not self.running:
@@ -656,7 +663,17 @@ class PrecipThread(threading.Thread):
                 duration = ii[1]-ii[0]
                 pstart = ii[4]
                 if not pstart:
+                    # no precipitation timespan
+                    if duration<600 and dursum>duration and prev_precip:
+                        # pause of precipitation less than 10 min. 
+                        # and more than the duration of precipitation
+                        # see DWD VuB 3 BHB 10.3.6
+                        prev_precip = False
+                        continue
+                    # This timespan is before the precipitation. Stop
+                    # loop.
                     break
+                prev_precip = True
                 if ii[2] is not None:
                     intensity = WW_INTENSITY_REVERSED.get(ii[2],0)
                 elif ii[3] is not None:
@@ -696,9 +713,11 @@ class PrecipThread(threading.Thread):
             # If the precipitation intensity and duration before suggest a 
             # "state after precipitation" return weather code 20...29
             # otherwise 00.
+            # no source for that rule
             if is2:
                 ww = ww_list[0][0]
                 wawa = wawa_list[0][0]
+                precipstart = pstart
             return ww, wawa, start, elapsed, precipstart
     
     def getRecord(self, ot):
@@ -1098,11 +1117,13 @@ class PrecipData(StdService):
                 self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
                 self.bind(weewx.END_ARCHIVE_PERIOD, self.end_archive_period)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
+            self.obs_t5cm = site_dict.get('temp5cm')
         # Initialize variables for the special accumulators
         self.old_accum = dict()
         self.accum_start_ts = None
         self.accum_end_ts = None
         self.lightning_strike_ts = 0
+        self.temp5cm_C = None
 
     def _create_thread(self, thread_name, thread_dict):
         """ Create device connection thread. """
@@ -1259,10 +1280,33 @@ class PrecipData(StdService):
         
     def shutDown(self):
         """ Shutdown threads. """
+        # request shutdown
         for ii in self.threads:
             try:
                 self.threads[ii]['thread'].shutDown()
-            except Exception:
+            except:
+                pass
+        # wait at max 10 seconds for shutdown to complete
+        timeout = time.time()+10
+        for ii in self.threads:
+            try:
+                w = timeout-time.time()
+                if w<=0: break
+                self.threads[ii]['thread'].join(w)
+                if self.threads[ii]['thread'].is_alive():
+                    logerr("unable to shutdown thread '%s'" % self.threads[ii]['thread'].name)
+            except:
+                pass
+        # report threads that are still alive
+        _threads = [ii for ii in self.threads]
+        for ii in _threads:
+            try:
+                if self.threads[ii]['thread'].is_alive():
+                    logerr("unable to shutdown thread '%s'" % self.threads[ii]['thread'].name)
+                del self.threads[ii]['thread']
+                del self.threads[ii]['queue']
+                del self.threads[ii]
+            except:
                 pass
         
     def _process_data(self, thread_name):
@@ -1398,14 +1442,28 @@ class PrecipData(StdService):
             self.lightning_strike_ts = 0
         val = record[obstype]
         if obstype=='ww' and val[2]=='group_wmo_ww':
+            # thunderstorm
             if self.lightning_strike_ts:
                 if val[0]==79:
                     record[obstype] = (96,val[1],val[2])
-                elif val[0]>=50 and val<=90:
+                elif val[0]>=50 and val[0]<=90:
                     record[obstype] = (95,val[1],val[2])
                 elif val[0]<17:
                     record[obstype] = (17,val[1],val[2])
+            # freezing rain or drizzle
+            if self.temp5cm_C is not None and self.temp5cm_C<0:
+                if val[0] in (50,51,58):
+                    record[obstype] = (56,val[1],val[2])
+                elif val[0] in (52,53,54,55,59):
+                    record[obstype] = (57,val[1],val[2])
+                elif val[0] in (60,61):
+                    record[obstype] = (66,val[1],val[2])
+                elif val[0] in (62,63,64,65):
+                    record[obstype] = (67,val[1],val[2])
+                elif val[0] in (20,21):
+                    record[obstype] = (24,val[1],val[2])
         elif obstype=='wawa' and val[2]=='group_wmo_wawa':
+            # thunderstorm
             if self.lightning_strike_ts:
                 if val[0]==89:
                     record[obstype] = (93,val[1],val[2])
@@ -1413,6 +1471,12 @@ class PrecipData(StdService):
                     record[obstype] = (92,val[1],val[2])
                 else:
                     record[obstype] = (90,val[1],val[2])
+            # freezing rain or drizzle
+            if self.temp5cm_C is not None and self.temp5cm_C<0:
+                if val[0] in (51,52,53,61,62,63):
+                    record[obstype] = (val[0]+3,val[1],val[2])
+                elif val[0] in (21,22,23):
+                    record[obstype] = (25,val[1],val[2])
     
     def new_loop_packet(self, event):
         """ Process LOOP event. """
@@ -1480,6 +1544,11 @@ class PrecipData(StdService):
             self.lightning_strike_ts = event.record.get('dateTime',time.time())
         else:
             self.lightning_strike_ts = 0
+        # Bodentemperatur
+        try:
+            self.temp5cm_C = weewx.units.convert(event.record[self.obs_t5cm],'degree_C')[0]
+        except (LookupError,ValueError,TypeError,ArithmeticError):
+            self.temp5cm_C = None
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
@@ -1642,7 +1711,7 @@ if __name__ == '__main__':
         t.shutDown()
         print('+++++++++++++')
         
-    else:
+    elif True:
     
         sv = PrecipData(None,conf_dict)
         
@@ -1675,3 +1744,17 @@ if __name__ == '__main__':
             
         sv.shutDown()
     
+    else:
+        
+        obs = 'ww'
+        
+        conf_dict['temp5cm'] = 'extraTemp1'
+        sv = PrecipData(None,conf_dict)
+        sv.temp5cm_C = 1.0
+        sv.lightning_strike_ts = time.time()
+        
+        for i in range(50,100):
+            record = {obs:(i,'byte','group_wmo_'+obs)}
+            sv.presentweather(obs,record)
+            print(i,record[obs])
+

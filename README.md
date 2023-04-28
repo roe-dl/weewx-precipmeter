@@ -279,7 +279,7 @@ Otherwise an icon representing the cloud coverage according to the
 forecast is shown.
 
 ```
-<img src="$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon" />
+<img src="$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).belchertown_icon" />
 ```
 
 ### Present weather description
@@ -293,9 +293,9 @@ would always be displayed in case of no precipitation.
 
 ```
 #if int($current.ww.raw)==0
-#set $icontxt=$presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+#set $icontxt=$presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).text
 #else
-#set $icontxt=$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+#set $icontxt=$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).text
 #end if
 $icontxt
 ```
@@ -370,8 +370,8 @@ Example table:
         <td>ww</td>
         <td>$current.ottWw</td>
         <td>$presentweather(ww=int($current.ottWw.raw)).wmo_symbol</td>
-        <td>$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text</td>
-        <td><img src="$relative_url/images/$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon"
+        <td>$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).text</td>
+        <td><img src="$relative_url/images/$presentweather(ww=int($current.ottWw.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).belchertown_icon"
         width="70px" /></td>
       </tr>
       <tr>
@@ -407,12 +407,12 @@ Example table:
         <td>$presentweather(ww=int($current.ww.raw)).wmo_symbol</td>
         <td>
         #if int($current.ww.raw)==0
-        $presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+        $presentweather(n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).text
         #else
-        $presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).text
+        $presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).text
         #end if
         </td>
-        <td><img src="$relative_url/images/$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=not $almanac.sun.visible).belchertown_icon"
+        <td><img src="$relative_url/images/$presentweather(ww=int($current.ww.raw),n=$hour($data_binding='dwd_binding').cloudcover.avg.raw,night=$almanac.sun.alt<0).belchertown_icon"
         width="70px" /></td>
       </tr>
       <tr>

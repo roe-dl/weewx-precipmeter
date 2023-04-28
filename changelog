@@ -2,3 +2,6 @@
 * initial version
 0.2
 * special accumulator for ww and wawa
+* fix shutDown function
+* fix night determination in examples
+* more postprocessing for ww and wawa
