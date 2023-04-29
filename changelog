@@ -5,3 +5,5 @@
 * fix shutDown function
 * fix night determination in examples
 * more postprocessing for ww and wawa
+0.3
+* present weather postprocessing rewritten
