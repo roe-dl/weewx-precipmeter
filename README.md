@@ -1,6 +1,6 @@
 # weewx-precipmeter
 WeeWX service to fetch data from disdrometers or present weather sensors
-like Ott Parsivel<sup>2</sup>
+like Ott Parsivel<sup>2</sup> or Thies LNM
 
 Please note: Actually the TCP connection is tested only.
 
@@ -29,7 +29,7 @@ For example I used the following components:
 
 item | amount | description | manufacturer |
 ----:|-------:|-------------|--------------|
-01   | 1 pc.  | laser disdrometer Parsivel<sup>2</sup> | Ott Hydromet Fellbach GmbH |
+01   | 1 pc.  | laser disdrometer Parsivel<sup>2</sup> | Ott Hydromet GmbH |
 02   | 1 pc.  | Com-Server++ 58665 | Wiesemann & Theis GmbH |
 03   | 1 pc.  | 9 pin sub-D connector female 11904 | Wiesemann & Theis GmbH |
 04   | 1 pc.  | power supply APU230V.24V-6A/20Ah *) | Rinck Electronics Germany GmbH |

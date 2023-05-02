@@ -21,6 +21,8 @@
 
 VERSION = "0.3"
 
+SIMULATE_ERRONEOUS_READING = False
+
 """
 
     Radarreflektivität (Z)
@@ -51,7 +53,11 @@ VERSION = "0.3"
           not the same as [0].)
           if this weather condition is no precipitation the value is
           None
-          
+    
+    A short interruption of precipitation is defined as:
+    * The interruption is shorter than 10 minutes AND
+    * the interruption is shorter than the duration of precipitation.
+    
 """
 
 import threading 
@@ -217,6 +223,24 @@ THIES = [
   (18,'1-Minuten-Wert Sichtweite im Niederschlag',5,'NNNNN','MOR','meter','group_distance'),
   (19,'1-Minuten-Wert Radarreflektivität',4,'NN.N','dBZ','dB','group_db'),
   (20,'Qualitätsmaß',3,'NNN',None,'percent','group_percent'),
+  (21,'1-Minuten-Wert maximaler Hageldurchmesser',3,'N.N',None,'mm',None),
+  (22,'Status Laser 0-an 1-aus',1,'N',None,'boolean','group_boolean'),
+  (23,'Status statistisches Signal 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (24,'Status Lasertemperatur (analog) 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (25,'Status Lasertemperatur (digital) 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (26,'Status Laserstrom (analog) 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (27,'Status Laserstrom (digital) 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (28,'Status Sensorversorgung 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
+  (29,'Status Glasheizung Laserkopf 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (30,'Status Glasheizung Empfangskopf 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (31,'Status Temperaturfühler 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (32,'Status Heizungsversorgung 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (33,'Status Heizung Gehäuse 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (34,'Status Heizung Kopf 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (35,'Status Heizung Bügel 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (36,'Status Regelausgang Laserleistung hoch 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
+  (37,'Reserve Status',1,'N',None,'boolean','group_boolean'),
+  (38,'Innentemperatur',3,'NNN','housingTemp','degree_C','group_temperature'),
   # ...
 ]
 
@@ -251,38 +275,85 @@ WAWA2_REVERSED = { i:j for j,k in WAWA2.items() for i in k }
 
 # weather type
 
+# Note: This is NOT a conversion table between WMO code and METAR code.
+#       This is a helper table for WMO code postprocessing.
+
 WW_TYPE = {
-    'no significant weather':(0,1,2,3),
-    'fog':(41,42,43,44,45,46,47,48,49),
-    'drizzle':(50,51,52,53,54,55),
-    'rain':(60,61,62,63,64,65,80,81,82),
-    'snow':(70,71,72,73,74,75,85,86),
-    'drizzle_rain':(58,59),
-    'rain_snow':(68,69),
-    'freezing_drizzle':(56,57),
-    'freezing_rain':(66,67),
-    'graupel':(87,88),
-    'hail':(89,90)
+    # no significant weather | kein signifikantes Wetter
+    'NP':(0,1,2,3),
+    # in the vicinity        | in der Entfernung
+    'VC':(9,14,15,16,40),
+    # smoke, volcanic ash    | Rauch, Vulkanasche
+    'FUVA':(4,),
+    # haze                   | trockener Dunst
+    'HZ':(5,),
+    # mist                   | feuchter Dunst
+    'BR':(10,),
+    # fog                    | Nebel
+    'FG':(11,12,41,42,43,44,45,46,47,48,49),
+    # drizzle                | Sprühregen (Niesel)
+    'DZ':(50,51,52,53,54,55),
+    # rain                   | Regen
+    'RA':(60,61,62,63,64,65,80,81,82,91,92),
+    # snow                   | Schneefall
+    'SN':(70,71,72,73,74,75,85,86,93,94),
+    # ice pellets            | Eiskörner
+    'PL':(79,),
+    # snow grains            | Schneegriesel
+    'SG':(77,),
+    # drizzle and rain       | Sprühregen und Regen
+    'RADZ':(58,59),
+    # rain and snow          | Schneeregen
+    'RASN':(68,69),
+    # freezing drizzle       | gefrierender Sprühregen
+    'FZDZ':(56,57),
+    # freezing rain          | gefrierender Regen
+    'FZRA':(66,67),
+    # graupel                | Graupel
+    'GS':(87,88),
+    # hail                   | Hagel
+    'GR':(89,90)
 }
 WAWA_TYPE = {
-    'no significant weather':(0,1,2,3),
-    'fog':(30,31,32,33,34,35),
-    'precipitation':(40,41,42,80),
-    'liquid_precipitation':(43,44),
-    'solid_precipitation':(45,46),
-    'freezing_preciptiation':(47,48),
-    'drizzle':(50,51,52,53),
-    'rain':(60,61,62,63,80,81,82,83,84),
-    'snow':(70,71,72,73,85,86,87),
-    'ice pellets':(74,75,76),
-    'snow grains':(77,),
-    'ice crystals':(78,),
-    'drizzle_rain':(57,58),
-    'rain_snow':(67,68),
-    'freezing_drizzle':(54,55,56),
-    'freezing_rain':(64,65,66),
-    'hail':(90,),
+    # no significant weather | kein signifikantes Wetter
+    'NP':(0,1,2,3),
+    # mist                   | feuchter Dunst
+    'BR':(10,),
+    # fog                    | Nebel
+    'FG':(30,31,32,33,34,35),
+    # precipitation          | Niederschlag
+    'UP':(40,41,42,80),
+    # liquid precipitation   | flüssiger Niederschlag
+    'LP':(43,44),
+    # solid precipitation    | fester Niederschlag
+    'SP':(45,46),
+    # freezing precipitation | gefrierender Niederschlag
+    'FZUP':(47,48),
+    # drizzle                | Sprühregen (Niesel)
+    'DZ':(50,51,52,53),
+    # rain                   | Regen
+    'RA':(60,61,62,63,80,81,82,83,84),
+    # snow                   | Schneefall
+    'SN':(70,71,72,73,85,86,87),
+    # ice pellets            | Eiskörner
+    'PL':(74,75,76),
+    # snow grains            | Schneegriesel
+    'SG':(77,),
+    # ice crystals           | Eisnadeln
+    'IC':(78,),
+    # drizzle and rain       | Sprühregen und Regen
+    'RADZ':(57,58),
+    # rain and snow          | Schneeregen
+    'RASN':(67,68),
+    # freezing drizzle       | gefrierender Sprühregen
+    'FZDZ':(54,55,56),
+    # freezing rain          | gefrierender Regen
+    'FZRA':(64,65,66),
+    # hail                   | Hagel
+    'GR':(90,),
+    # tornado                | Tornado
     'tornado':(99,),
+    # reserved               | reserviert
     'reserved': WAWA2[-1]
 }
 
@@ -342,7 +413,7 @@ def issqltexttype(x):
     return x in ('TEXT','CLOB','CHARACTER','VARCHAR','VARYING CHARACTER','NCHAR','NATIVE CHARACTER','NVARCHAR')
 
 def is_ww_wawa_precipitation(ww, wawa):
-    """ Means this weather code precipitation? """
+    """ Does this weather code mean precipitation? """
     return (ww and ww>=50) or (wawa and wawa>=40)
 
 class PrecipThread(threading.Thread):
@@ -360,6 +431,7 @@ class PrecipThread(threading.Thread):
         self.set_weathercodes = conf_dict.get('weathercodes',name)==name
         self.set_visibility = conf_dict.get('visibility',name)==name
         self.set_precipitation = conf_dict.get('precipitation','-----')==name
+        self.prefix = conf_dict.get('prefix')
         
         self.data_queue = data_queue
         self.query_interval = query_interval
@@ -544,6 +616,13 @@ class PrecipThread(threading.Thread):
                             # the record of the erroneous reading and
                             # use the previous one as actual one.
                             del self.presentweather_list[-1]
+                            # If the removed element was precipitation,
+                            # the element before (which is the last 
+                            # and active element now) may be marked as
+                            # short precipitation interruption. Remove
+                            # that mark.
+                            if not PrecipThread.is_el_precip(self.presentweather_list[-1]):
+                                self.presentweather_list[-1][4] = None
                             # Now remove the last row from the database,
                             # as this is the active row again.
                             try:
@@ -820,7 +899,7 @@ class PrecipThread(threading.Thread):
                 since = int(time.time()-self.start_ts)
                 if __name__ == '__main__':
                     print('///////////////////////',since,'///////////////////////')
-                if False:
+                if SIMULATE_ERRONEOUS_READING:
                     # erroneous reading
                     self.rain_simulator = 0
                     if since==30:
@@ -911,12 +990,11 @@ class PrecipThread(threading.Thread):
                     # additional processing 
                     if ii[0]==2:
                         # rain
-                        # TODO: prefix
-                        if self.last_rain is not None:
+                        if self.last_rain is not None and self.prefix:
                             rain = val[0]-self.last_rain
                             if val[0]<self.last_rain:
                                 rain += 300.0
-                            record['ottRain'] = (rain,'mm','group_rain')
+                            record[self.prefix+'Rain'] = (rain,'mm','group_rain')
                         self.last_rain = val[0]
                     elif ii[0]==18:
                         # sensor state
@@ -937,6 +1015,7 @@ class PrecipThread(threading.Thread):
                         logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
                         self.next_obs_errors[ii[4]] = time.time()+300
         elif self.model=='thies':
+            deviceState = [None]*16
             if reply[0]==chr(2): reply = reply[1:]
             if ';' not in reply: reply = ''
             for ii in self.telegram_list:
@@ -975,6 +1054,8 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
+                    # remember state bytes
+                    if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
@@ -982,6 +1063,10 @@ class PrecipThread(threading.Thread):
                     if self.next_obs_errors[ii[4]]<time.time():
                         logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
                         self.next_obs_errors[ii[4]] = time.time()+300
+                # list of state values (no. 22 to 37)
+                if self.prefix:
+                    record[self.prefix+'DeviceError'] = (deviceState[0:7],'byte','group_data')
+                    record[self.prefix+'DeviceWarning'] = (deviceState[7:15],'byte','group_data')
         #elif self.model=='...'
         #    ...
         else:
@@ -991,6 +1076,10 @@ class PrecipThread(threading.Thread):
         if not self.running: 
             loginf("thread '%s': self.running==False getRecord() after telegram_list loop" % self.name)
             return
+            
+        if record and self.prefix:
+            # history of present weather codes of the last hour
+            record[self.prefix+'History'] = (self.presentweather_list,'byte','group_data')
 
         if record and self.set_weathercodes:
             try:
@@ -1011,13 +1100,13 @@ class PrecipThread(threading.Thread):
                         self.next_presentweather_error = 0
                     else:
                         self.next_presentweather_error = time.time()+300
-        if record and self.set_visibility:
+        if record and self.set_visibility and self.prefix:
             try:
-                # TODO: prefix
-                if 'ottMOR' in record: record['visibility'] = record['ottMOR']
+                if (self.prefix+'MOR') in record: 
+                    record['visibility'] = record[self.prefix+'MOR']
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 pass
-        if record and self.set_precipitation:
+        if record and self.set_precipitation and self.prefix:
             # Generally the readings of `rain` and `rainRate` are not 
             # provided by this extension but by the driver that is set
             # up by the `station_type` key in the `[Station]` section
@@ -1026,11 +1115,10 @@ class PrecipThread(threading.Thread):
             # key in the `[PrecipMeter]` section and have it point to
             # the device subsection you want to get the readings from.
             try:
-                # TODO: prefix
-                if 'ottRain' in record:
-                    record['rain'] = record['ottRain']
-                if 'ottRainRate' in record:
-                    record['rainRate'] = record['ottRainRate']
+                if (self.prefix+'Rain') in record:
+                    record['rain'] = record[self.prefix+'Rain']
+                if (self.prefix+'RainRate') in record:
+                    record['rainRate'] = record[self.prefix+'RainRate']
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 pass
         
@@ -1191,7 +1279,10 @@ class PrecipData(StdService):
                                     obstype = thread_dict['prefix']+jj[4][0].upper()+jj[4][1:]
                                 else:
                                     obstype = jj[4]
-                                if jj[6] in ('group_count','group_wmo_ww','group_wmo_wawa'):
+                                if jj[6] in ('group_count',
+                                             'group_wmo_ww',
+                                             'group_wmo_wawa',
+                                             'group_boolean'):
                                     obsdatatype = 'INTEGER'
                                 elif jj[5]=='string':
                                     obsdatatype = 'VARCHAR(%d)' % jj[2]
@@ -1215,11 +1306,20 @@ class PrecipData(StdService):
         elif model=='thies' and 'loop' not in thread_dict:
             t = []
             for ii in THIES:
-                if 'prefix' in thread_dict and ii[4]:
-                    obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
+                if ii[4]:
+                    if 'prefix' in thread_dict:
+                        if thread_dict['prefix']:
+                            obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
+                        else:
+                            obstype = ii[4]
+                    else:
+                        obstype = 'thies'+ii[4][0].upper()+ii[4][1:]
                 else:
-                    obstype = ii[4]
-                if ii[6] in ('group_count','group_wmo_ww','group_wmo_wawa'):
+                    obstype = None
+                if ii[6] in ('group_count',
+                             'group_wmo_ww',
+                             'group_wmo_wawa',
+                             'group_boolean'):
                     obsdatatype = 'INTEGER'
                 elif ii[5]=='string':
                     obsdatatype = 'VARCHAR(%d)' % ii[2]
@@ -1255,6 +1355,19 @@ class PrecipData(StdService):
         self.threads[thread_name]['accum'] = dict()
         # initialize observation types
         _accum = dict()
+        if 'prefix' in thread_dict:
+            # amount of rain during archive interval
+            obstype = thread_dict['prefix']+'Rain'
+            obsgroup = 'group_rain'
+            weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
+            global table
+            table.append((obstype,obsgroup))
+            _accum[obstype] = ACCUM_SUM
+            # present weather code history for the last hour
+            obstype = thread_dict['prefix']+'History'
+            obsgroup = 'group_data'
+            weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
+            _accum[obstype] = ACCUM_STRING
         for ii in thread_dict['loop']:
             obstype,obsunit,obsgroup,obsdatatype = ii[4:]
             if not obsgroup and obsunit:
@@ -1282,14 +1395,7 @@ class PrecipData(StdService):
                     _accum[obstype] = ACCUM_LAST
                 if issqltexttype(obsdatatype):
                     _accum[obstype] = ACCUM_STRING
-                global table
                 table.append((obstype,obsdatatype))
-        if 'prefix' in thread_dict:
-            obstype = thread_dict['prefix']+'Rain'
-            obsgroup = 'group_rain'
-            weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-            table.append((obstype,obsgroup))
-            _accum[obstype] = ACCUM_SUM
         # add accumulator entries
         if _accum:
             loginf ("accumulator dict for '%s': %s" % (thread_name,_accum))
@@ -1618,8 +1724,6 @@ class PrecipArchive(StdService):
                 print('----------')
                 print(schema)
                 print('----------')
-            loginf(table)
-            loginf(schema)
             # init database
             binding = config_dict['PrecipMeter'].get('data_binding','precip_binding')
             if binding in ('None','none'): binding = None
