@@ -492,6 +492,65 @@ Example table:
 The `$presentweather` tag is available from 
 [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
 
+### Table of present weather during the last hour
+
+If you doubt the reason for some present weather code in `ww` or `wawa`
+you can inspect the `history` observation type to get a list of the
+detected weather during the last hour. The following example creates
+a table showing start and end of each individual weather, its
+duration, the respective values of `ww` and `wawa` and - if there
+is precipitation - the start time of the precipitation.
+If there is no weather change during the last hour, no table is
+shown at all.
+
+In this example you also learn how to use the `ValueTuple` and
+`ValueHelper` classes for calculated values in WeeWX templates.
+
+```
+#from weewx.units import ValueTuple, ValueHelper
+...
+    #if $len($current.ottHistory.raw)>1
+    <p>Wetterzustände der letzten Stunde:</p>
+    <table class="table-striped">
+      <tr>
+        <th>Beginn</th>
+        <th>Ende</th>
+        <th>Dauer</th>
+        <th>ww</th>
+        <th>w<sub>a</sub>w<sub>a</sub></th>
+        <th>Niederschlagsbeginn</th>
+      </tr>
+      #for $ii in reversed($current.ottHistory.raw)
+      #set $start=ValueHelper(ValueTuple($ii[0],'unix_epoch','group_time'),formatter=$station.formatter)
+      #set $stop=ValueHelper(ValueTuple($ii[1],'unix_epoch','group_time'),formatter=$station.formatter)
+      #set $precipstart=ValueHelper(ValueTuple($ii[4],'unix_epoch','group_time'),formatter=$station.formatter)
+      #set $duration=ValueHelper(ValueTuple($ii[1]-$ii[0],'second','group_deltatime'),formatter=$station.formatter)
+      <tr>
+        <td>$start</td>
+        <td>$stop</td>
+        <td>
+          #if $duration.raw>3600
+          $duration.hour
+          #else
+          $duration.minute
+          #end if
+        </td>
+        <td>
+          $('%02d' % ii[2])
+          <span style="position:relative;top:4px">$presentweather(ww=$ii[2]).wmo_symbol(width=22)</span>
+        </td>
+        <td>
+          $('%02d' % ii[3])
+          <span style="position:relative;top:4px">$presentweather(wawa=$ii[3]).wmo_symbol(width=22)</span>
+        </td>
+        <td>$precipstart</td>
+      </tr>
+      #end for
+    </table>
+    <p></p>
+    #end if
+```
+
 ## How to set up Ott Parsivel<sup>2</sup>?
 
 * Open the front cover
