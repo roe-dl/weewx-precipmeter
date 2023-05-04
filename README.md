@@ -178,6 +178,10 @@ includes all numeric values in the list of daily summeries tables. But
 WeeWX let you have an observation type either with a daily summeries
 table or the `firstlast` accumulator, not both.
 
+Additionally the accumulator 'firstlast' as of version 4.10.2 converts
+all values to strings. So it is not suitable for values other than
+strings (like numbers or lists), anyway. 
+
 For the present weather `ww` and `wawa` this extension includes it's
 own accumulator. It omits readings that are opposite to the readings
 before and after. This is because the propability of error ist about
@@ -269,6 +273,18 @@ Those observation type names are prepended by the prefix defined in
 * `dBZ`: radar reflectivity factor
 * `MOR`: meteorological optical range (visibility)
 * `raw0000` to `raw1023`: raw data (no. 93)
+* `history`: history of the present weather codes of the last
+  hour. This is for debugging purpose . The internal structure of the
+  value may change without notice.
+
+### Present weather codes
+
+In general disdrometers use a subset of the WMO code tables.
+
+WMO code table 4677 ww | WMO code table 4680 w<sub>a</sub>w<sub>a</sub>
+-------------------------|---------------------------
+![WMO-Code-Tabelle 4677](https://raw.githubusercontent.com/roe-dl/weathericons/master/WMO-code-table-4677-colored.png) | ![WMO-Code-Tabelle 4680](https://raw.githubusercontent.com/roe-dl/weathericons/master/WMO-code-table-4680-colored.png)
+
 
 ## Usage in skins
 

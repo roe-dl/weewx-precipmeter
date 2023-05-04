@@ -58,6 +58,9 @@ SIMULATE_ERRONEOUS_READING = False
     * The interruption is shorter than 10 minutes AND
     * the interruption is shorter than the duration of precipitation.
     
+    The WeeWX accumulator 'firstlast' as of version 4.10.2 converts
+    all values to strings. So it is not suitable for lists.
+    
 """
 
 import threading 
@@ -134,7 +137,7 @@ ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
 ACCUM_LAST = { 'extractor':'last' }
 ACCUM_MAX = { 'extractor':'max' }
-ACCUM_NOOP = { 'extractor':'noop' }
+ACCUM_NOOP = { 'accumulator':'firstlast','adder':'noop','extractor':'noop' }
 
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
@@ -1246,6 +1249,9 @@ class PrecipData(StdService):
         model = thread_dict.get('model','Ott-Parsivel2').lower()
         if (model in ('ott-parsivel','ott-parsivel1','ott-parsivel2') and 
             not 'loop' in thread_dict):
+            # The prefix is 'ott' if no prefix is set by the user.
+            if 'prefix' not in thread_dict:
+                thread_dict['prefix'] = 'ott'
             # convert Ott Parsivel2 telegram configuration string to the
             # internal structure
             # Note: If that does not meet your needs, use a [loop]
@@ -1304,16 +1310,16 @@ class PrecipData(StdService):
                     ct = []
             thread_dict['loop'] = t
         elif model=='thies' and 'loop' not in thread_dict:
+            # The prefix is 'thies' if the user did not set a prefix.
+            if 'prefix' not in thread_dict:
+                thread_dict['prefix'] = 'thies'
             t = []
             for ii in THIES:
                 if ii[4]:
-                    if 'prefix' in thread_dict:
-                        if thread_dict['prefix']:
-                            obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
-                        else:
-                            obstype = ii[4]
+                    if thread_dict['prefix']:
+                        obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
                     else:
-                        obstype = 'thies'+ii[4][0].upper()+ii[4][1:]
+                        obstype = ii[4]
                 else:
                     obstype = None
                 if ii[6] in ('group_count',
@@ -1353,8 +1359,10 @@ class PrecipData(StdService):
         self.threads[thread_name]['thread'] = PrecipThread(thread_name,thread_dict,self.threads[thread_name]['queue'],query_interval)
         self.threads[thread_name]['reply_count'] = 0
         self.threads[thread_name]['accum'] = dict()
+        self.threads[thread_name]['prefix'] = thread_dict.get('prefix')
         # initialize observation types
         _accum = dict()
+        # derived observation types
         if 'prefix' in thread_dict:
             # amount of rain during archive interval
             obstype = thread_dict['prefix']+'Rain'
@@ -1363,11 +1371,13 @@ class PrecipData(StdService):
             global table
             table.append((obstype,obsgroup))
             _accum[obstype] = ACCUM_SUM
-            # present weather code history for the last hour
+            # present weather code history of the last hour
+            # (for debugging purposes)
             obstype = thread_dict['prefix']+'History'
             obsgroup = 'group_data'
             weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-            _accum[obstype] = ACCUM_STRING
+            _accum[obstype] = ACCUM_NOOP
+        # observation types that are readings from the device
         for ii in thread_dict['loop']:
             obstype,obsunit,obsgroup,obsdatatype = ii[4:]
             if not obsgroup and obsunit:
@@ -1444,24 +1454,32 @@ class PrecipData(StdService):
         ct = 0
         while True:
             try:
+                # get the next packet
                 data1 = self.threads[thread_name]['queue'].get(block=False)
             except queue.Empty:
+                # no more packets available so far
                 break
             else:
+                # accumulate readings that arrived since the last LOOP
+                # packet
                 for key,val in data1[1].items():
                     if key in data:
-                        if key=='ottRain':
-                            # TODO: prefix
+                        # further occurances of the observation type
+                        if (self.threads[thread_name].get('prefix') and
+                            key==(self.threads[thread_name]['prefix']+'Rain')):
+                            # calculate rain amount during interval
                             try:
                                 data[key] = (data[key][0]+val[0],val[1],val[2])
                             except ArithemticError:
                                 pass
                         elif val[2] in AVG_GROUPS:
+                            # average
                             try:
                                 data[key] = ((data[key][0][0]+val[0],data[key][0][1]+1),val[1],val[2])
                             except ArithmeticError:
                                 data[key] = val
                         elif val[2] in MAX_GROUPS:
+                            # maximum
                             try:
                                 if data[key][0]<val[0]:
                                     data[key] = val
@@ -1470,6 +1488,7 @@ class PrecipData(StdService):
                         else:
                             data[key] = val
                     else:
+                        # first occurance of this observation type
                         if val[2] in AVG_GROUPS:
                             data[key] = ((val[0],1),val[1],val[2])
                         else:
@@ -1488,11 +1507,16 @@ class PrecipData(StdService):
     
     def special_accumulator_add(self, thread_name, key, val):
         """ Add value to special accumulator. """
+        # present weather
         if val[2] in ('group_wmo_ww','group_wmo_wawa'):
             obs = (key,val[1],val[2])
             if obs not in self.threads[thread_name]['accum']:
                 self.threads[thread_name]['accum'][obs] = [None]
             self.threads[thread_name]['accum'][obs].append(val[0])
+        # history of the present weather
+        if val[2]=='group_data':
+            obs = (key,val[1],val[2])
+            self.threads[thread_name]['accum'][obs] = val[0]
         
     def new_special_accumulator(self, timestamp):
         """ Initialize timespan for special accumulators. """
@@ -1501,7 +1525,20 @@ class PrecipData(StdService):
         self.accum_end_ts = self.accum_start_ts + self.archive_interval
 
     def special_accumulator(self, obsunit, obsgroup, accum):
-        """ Accumulator for ww and wawa. """
+        """ Accumulator for ww, wawa and group_data. 
+        
+            called from special_accumulators()
+            
+            obsunit  - obs[1] from self.threads[thread_name]['accum']
+            obsgroup - obs[2] from self.threads[thread_name]['accum']
+            accum    - value of the accumulator
+                       self.threads[thread_name]['accum'][obs]
+            
+            returns the accumulated value
+        """
+        # For 'group_data' always the last reading is returned.
+        if obsgroup=='group_data':
+            return accum
         # The first element of accum is always out of the previous archive
         # interval. If it is the only element, no value is received during 
         # the actual archive interval. So return None.
@@ -1539,27 +1576,48 @@ class PrecipData(StdService):
         return None
     
     def special_accumulators(self, thread_name, thread_accum, timestamp):
-        """ Process special accumulators. """
+        """ Process special accumulators. 
+        
+            Calculate the accumulated values, store them to self.old_accum
+            and re-initialize thread_accum for the next ARCHIVE interval.
+            
+            thread_name  - name of the thread the readings came from
+            thread_accum - self.threads[thread_name]['accum']
+            timestamp    - the timestamp of the LOOP packet
+        """
         for obs in thread_accum:
             # accumulate values and set archive value
             try:
                 if __name__=='__main__':
                     print('accumulator',obs,thread_accum[obs])
+                # get the accumulated reading
                 val = self.special_accumulator(obs[1],obs[2],thread_accum[obs])
                 if val is not None:
                     self.old_accum[obs[0]] = val
             except (ValueError,TypeError,LookupError,ArithmeticError) as e:
                 if self.log_failure:
                     logerr("accumulator %s %s %s %s" % (thread_name,obs,e.__class__.__name__,e))
-            # re-initialize accumulator: remember the last value
-            try:
-                last_val = thread_accum[obs][-1]
-            except LookupError:
-                last_val = None
-            thread_accum[obs] = [last_val]
+            # re-initialize accumulator
+            if obs[2]=='group_data':
+                # remove the value for group_data
+                thread_accum[obs] = None
+            else:
+                # remember the last value for group_wmo_ww and group_wmo_wawa
+                try:
+                    last_val = thread_accum[obs][-1]
+                except LookupError:
+                    last_val = None
+                thread_accum[obs] = [last_val]
 
     def presentweather(self, obstype, record):
-        """ Postprecess ww and wawa. """
+        """ Postprocess ww and wawa. 
+        
+            Do such postprocessing that is not possible within the device
+            thread, because it requires additional information from the 
+            archive record. Changes record[obstype] if appropriate.
+            Applies to 'ww' and 'wawa'.
+            
+        """
         if obstype not in record: return
         ts = record.get('dateTime',time.time())
         # According to the standards a thunderstorm ends when the last
@@ -1612,7 +1670,9 @@ class PrecipData(StdService):
             # the accumulated values
             if self.accum_end_ts and timestamp>self.accum_end_ts:
                 self.special_accumulators(thread_name,self.threads[thread_name]['accum'],timestamp)
+            # get readings that newly arrived since the last LOOP event 
             reply = self._process_data(thread_name)
+            # if new data is available process them and update the LOOP packet
             if reply:
                 try:
                     self.presentweather('ww',reply)
@@ -1850,6 +1910,7 @@ if __name__ == '__main__':
                     if len(event.packet)>1:
                         print('=== LOOP ===================================================')
                         print(event.packet)
+                        print(type(event.packet['ottHistory']))
                         print('============================================================')
                     time.sleep(10)
                 sv.end_archive_period(dict())
