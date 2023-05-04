@@ -245,7 +245,12 @@ To convert the present weather code into a symbol or icon
 look for the `$presentweather` tag provided by
 [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
 
-The observation types `ww`, `wawa`, `presentweatherStart` and
+Example of weather icons supplied by `$presentweather`:
+drizzle | rain | hail | rain and snow | snow | 
+--------|------|------|---------------|------|
+<img src="https://www.woellsdorf-wetter.de/images/drizzle.svg" width="50px" /> |<img src="https://www.woellsdorf-wetter.de/images/rain.svg" width="50px" /> | <img src="https://www.woellsdorf-wetter.de/images/hail.svg" width="50px" /> | <img src="https://www.woellsdorf-wetter.de/images/sleet.svg" width="50px" /> | <img src="https://www.woellsdorf-wetter.de/images/snow.svg" width="50px" /> | 
+
+The observation types `ww`, `wawa`, `presentweatherStart`, and
 `presentweatherTime` are derived from the device that is set
 by the `weathercodes` key. The observation type `visibility`
 is derived from the device that is set by the `visibility`
@@ -270,11 +275,33 @@ Those observation type names are prepended by the prefix defined in
 * `rainRate`: rain rate
 * `rainAccu`: accumulated rain since power-on
 * `rainAbs`: absolute amount of rain
+* `snowRate`: snow intensity
 * `dBZ`: radar reflectivity factor
-* `MOR`: meteorological optical range (visibility)
+* `MOR`: meteorological optical range (visibility) in precipitation
+  (This reading does not report fog induced visibility reduction.)
 * `raw0000` to `raw1023`: raw data (no. 93)
 * `history`: history of the present weather codes of the last
-  hour. This is for debugging purpose . The internal structure of the
+  hour. This is for debugging purposes. The internal structure of the
+  value may change without notice.
+
+### Thies LNM
+
+Those observation type names are prepended by the prefix defined in
+`weewx.conf`. Default is `thies`.
+
+* `SNR`: serial number of the device
+* `wawa`: present weather code according to WMO table 4680
+* `ww`: present weather code according to WMO table 4677
+* `METAR`: present weather code according to WMO table 4678
+* `precipRate`: precipitation intensity (all kind of precipitation)
+* `rainRate`: intensity of liquid precipitation
+* `snowRate`: intensity of solid precipitation
+* `rainAccu`: accumulated rain since power-on
+* `dBZ`: radar reflectivity factor
+* `MOR`: meteorological optical range (visibility) in precipitation
+  (This reading does not report fog induced visibility reduction.)
+* `history`: history of the present weather codes of the last
+  hour. This is for debugging purposes. The internal structure of the
   value may change without notice.
 
 ### Present weather codes
@@ -285,6 +312,8 @@ WMO code table 4677 ww | WMO code table 4680 w<sub>a</sub>w<sub>a</sub>
 -------------------------|---------------------------
 ![WMO-Code-Tabelle 4677](https://raw.githubusercontent.com/roe-dl/weathericons/master/WMO-code-table-4677-colored.png) | ![WMO-Code-Tabelle 4680](https://raw.githubusercontent.com/roe-dl/weathericons/master/WMO-code-table-4680-colored.png)
 
+These symbols and appropriate description texts can be displayed by the
+`$presentweather` tag.
 
 ## Usage in skins
 
