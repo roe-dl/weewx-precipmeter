@@ -147,6 +147,27 @@ for _,ii in weewx.units.std_groups.items():
 MILE_PER_METER = 1.0/weewx.units.METER_PER_MILE
 weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER)
 
+if 'volt' not in weewx.units.conversionDict:
+    weewx.units.conversionDict['volt'] = {}
+weewx.units.conversionDict['volt'].setdefault('millivolt',lambda x: x*0.001)
+weewx.units.conversionDict['volt'].setdefault('decivolt',lambda x: x*0.1)
+if 'millivolt' not in weewx.units.conversionDict:
+    weewx.units.conversionDict['millivolt'] = {}
+weewx.units.conversionDict['millivolt'].setdefault('volt',lambda x: x*1000)
+weewx.units.conversionDict['millivolt'].setdefault('decivolt',lambda x: x*0.01)
+if 'decivolt' not in weewx.units.conversionDict:
+    weewx.units.conversionDict['decivolt'] = {}
+weewx.units.conversionDict['decivolt'].setdefault('volt',lambda x: x*0.1)
+weewx.units.conversionDict['decivolt'].setdefault('millivolt',lambda x: x*100)
+
+if 'amp' not in weewx.units.conversionDict:
+    weewx.units.conversionDict['amp'] = {}
+weewx.units.conversionDict['amp'].setdefault('milliamp',lambda x: x*1000)
+if 'milliamp' not in weewx.units.conversionDict:
+    weewx.units.conversionDict['milliamp'] = {}
+weewx.units.conversionDict['milliamp'].setdefault('amp',lambda x: x*0.001)
+
+
 ##############################################################################
 #    data telegrams                                                          #
 ##############################################################################
@@ -207,15 +228,20 @@ PARSIVEL = [
 ]
 
 THIES = [
+  #Nr,Beschreibung,Stellen,Form,Größe,Einheit,Gruppe
+  # 1 STX
+  # device information and identification
   ( 2,'Geräteadresse',2,'00',None,'string',None),
   ( 3,'Seriennummer',4,'NNNN','SNR','string',None),
   ( 4,'Software-Version',5,'N.NN',None,'string',None),
   ( 5,'Gerätedatum',8,'tt.mm.jj',None,'string',None),
   ( 6,'Gerätezeit zur Abfrage',8,'hh:mm:ss',None,'string',None),
+  # readings (5 minutes averages)
   ( 7,'5-Minuten-Mittelwert SYNOP 4677',2,'NN',None,'byte','group_wmo_ww'),
   ( 8,'5-Minuten-Mittelwert SYNOP 4680',2,'NN',None,'byte','group_wmo_wawa'),
   ( 9,'5-Minuten-Mittelwert METAR 4678',5,'AAAAA',None,'string',None),
   (10,'5-Mintuen-Mittelwert Intensität',7,'NNN.NNN',None,'mm_per_hour','group_rainrate'),
+  # readings (1 minute averages)
   (11,'1-Minuten-Wert SYNOP 4677',2,'NN','ww','byte','group_wmo_ww'),
   (12,'1-Minuten-Wert SYNOP 4680',2,'NN','wawa','byte','group_wmo_wawa'),
   (13,'1-Minuten-Wert METAR 4678',5,'NN','METAR','string',None),
@@ -227,6 +253,7 @@ THIES = [
   (19,'1-Minuten-Wert Radarreflektivität',4,'NN.N','dBZ','dB','group_db'),
   (20,'Qualitätsmaß',3,'NNN',None,'percent','group_percent'),
   (21,'1-Minuten-Wert maximaler Hageldurchmesser',3,'N.N',None,'mm',None),
+  # 22...37 device state values
   (22,'Status Laser 0-an 1-aus',1,'N',None,'boolean','group_boolean'),
   (23,'Status statistisches Signal 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
   (24,'Status Lasertemperatur (analog) 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
@@ -243,8 +270,37 @@ THIES = [
   (35,'Status Heizung Bügel 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
   (36,'Status Regelausgang Laserleistung hoch 0-ok 1-Warnung',1,'N',None,'boolean','group_boolean'),
   (37,'Reserve Status',1,'N',None,'boolean','group_boolean'),
+  # device monitoring data
   (38,'Innentemperatur',3,'NNN','housingTemp','degree_C','group_temperature'),
+  (39,'Temperatur des Laser-Treibers',2,'NN',None,'degree_C','group_temperature'),
+  (40,'Mittelwert des Laserstroms in 1/100 mA',4,'NNNN',None,None,None),
+  (41,'Regel-Istspannung',4,'NNNN',None,'millivolt','group_volt'),
+  (42,'Regelausgang',4,'NNNN',None,'millivolt','group_volt'),
+  (43,'Spannung Sensorversorgung',3,'NNN','supplyVoltage','decivolt','group_volt'),
+  (44,'Strom Glasheizung Laserkopf',3,'NNN','heatingCurrentLaser','milliamp','group_amp'),
+  (45,'Strom Glasheizung Empfängerkopf',3,'NNN','heatingCurrentReceiver','milliamp','group_amp'),
+  (46,'Außentemperatur',5,'NNN.N','outTemp','degree_C','group_temperature'),
+  (47,'Spannung Heizungsversorgung',3,'NNN','heatingVoltage','decivolt','group_volt'),
+  (48,'Strom Gehäuseheizung',4,'NNNN',None,'milliamp','group_amp'),
+  (49,'Strom Kopfheizung',4,'NNNN',None,'milliamp','group_amp'),
+  (50,'Strom Bügelheizung',4,'NNNN',None,'milliamp','group_amp'),
+  # particle count
+  (51,'Anzahl aller gemessenen Partikel',5,'particleCount','count','group_count'),
+  (52,'interne Daten',9,'00000.000',None,None,None),
+  (53,'Partikelanzahl < minimale Geschwindigkeit',5,'NNNNN','particleCountTooSlow','count','group_count'),
+  (54,'interne Daten',9,'00000.000',None,None,None),
+  (55,'Partikelanzahl > maximale Geschwindigkeit',5,'NNNNN','particleCountTooFast','count','group_count'),
+  (56,'interne Daten',9,'00000.000',None,None,None),
+  (57,'Partikelanzahl < minimaler Durchmesser',5,'NNNNN','particleCountTooSmall','count','group_count'),
+  (58,'interne Daten',9,'00000.000',None,None,None),
+  # internal data 59...80
+  (59,'Partikelanzahl kein Hydrometeor',5,'NNNNN',None,'count','group_count'),
   # ...
+  # raw data 81...520
+  # ...
+  # 521 checksum 
+  # 522 CRLF
+  # 523 ETX
 ]
 
 # "state after something" weather codes
@@ -366,11 +422,11 @@ WAWA_TYPE_REVERSED = { i:j for j,k in WAWA_TYPE.items() for i in k }
 # precipitation intensity
 
 WW_INTENSITY = [
-    set(),
+    tuple(),
     (50,51,58,60,61,68,70,71,77,83,87,89,91,93), # light
     (52,53,59,62,63,69,72,73,77,84,88,90,92,94), # moderate
     (54,55,59,64,65,69,74,75,77,84,88,90,92,94), # heavy
-    set()
+    tuple()
 ]
 WAWA_INTENSITY = [
     (40,50,60,70,80),                                  # unknown
