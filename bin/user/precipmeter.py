@@ -736,8 +736,8 @@ class PrecipThread(threading.Thread):
                         precip_duration = self.presentweather_list[-2][1]-self.presentweather_list[-2][4]
                         if (no_precip_duration<600 and
                             no_precip_duration<precip_duration):
-                            precip_start = self.presentweather_list[-2][4]
-                            self.presentweather_list[-1][4] = precip_start
+                            precipstart = self.presentweather_list[-2][4]
+                            self.presentweather_list[-1][4] = precipstart
                 else:
                     # actually no precipitation
                     precipstart = None
