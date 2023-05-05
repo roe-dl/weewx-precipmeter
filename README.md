@@ -553,7 +553,7 @@ In this example you also learn how to use the `ValueTuple` and
 
 Example how that table could look like:
 
-![present weather history table](Wetterzustände-Tabelle.png)
+![present weather history table](https://github.com/roe-dl/weewx-precipmeter/blob/4a49dba94a97fefda6c9ef25757b0df51cb44008/Wetterzusta%CC%88nde-Tabelle.png)
 
 ## How to set up Ott Parsivel<sup>2</sup>?
 
