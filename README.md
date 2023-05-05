@@ -551,6 +551,10 @@ In this example you also learn how to use the `ValueTuple` and
     #end if
 ```
 
+Example how that table could look like:
+
+![present weather history table](Wetterzustände-Tabelle.png)
+
 ## How to set up Ott Parsivel<sup>2</sup>?
 
 * Open the front cover
@@ -597,6 +601,7 @@ not sending data.
   Please note, that the database table is created at the very first run
   after setting up the PrecipMeter extension. If you change the settings
   afterwards, the database table schema is **not** updated. 
+  That's due to how WeeWX processes databases.
 
 * The device reports precipitation for one moment while there is no
   precipitation around.
