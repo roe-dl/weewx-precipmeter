@@ -627,16 +627,17 @@ class PrecipThread(threading.Thread):
     def is_el_precip(el):
         return is_ww_wawa_precipitation(el[2],el[3])
     
-    def presentweather(self, ts, ww, wawa):
+    def presentweather(self, ts, ww, wawa, metar):
         """ Postprocessing of ww and wawa.
             
             enhances ww and wawa and calculates `presentweatherStart`,
             `presentweatherTime`, and `precipitationStart`
         """
         # A value of None is possible. Otherwise the value must be of
-        # type int.
+        # type int (or str in case of metar).
         if ww is not None: ww = int(ww)
         if wawa is not None: wawa = int(wawa)
+        if metar is not None: metar = str(metar)
         # check for inconsistency between ww and wawa if both values are
         # present
         if ww is not None and wawa is not None:
@@ -791,11 +792,25 @@ class PrecipThread(threading.Thread):
                     wawatype = wawatype1
                     start = ii[0]
                 #
-                if is_ww_wawa_precipitation(ii[2],ii[3]):
+                #if is_ww_wawa_precipitation(ii[2],ii[3]):
+                if PrecipThread.is_el_precip(ii):
                     precip_duration += duration
                 #
                 if ii[4]:
-                    if is_ww_wawa_precipitation(ii[2],ii[3]):
+                    # precipitation or short interruption of precipitation
+                    if idx==0 and ii[4]!=ii[0]:
+                        # If the precipitation started before the timespan
+                        # of the first element of the list, initialize 
+                        # dursum and intsum with the duration of the 
+                        # precipitation before the first element in the list.
+                        # As no information of the intensity is available,
+                        # assume light intensity.
+                        dursum = ii[0]-ii[4]
+                        intsum = dursum
+                    #if is_ww_wawa_precipitation(ii[2],ii[3]):
+                    if PrecipThread.is_el_precip(ii):
+                        # Short interruptions of precipitation are not included
+                        # in the intensity average.
                         if ii[2] is not None:
                             intensity = WW_INTENSITY_REVERSED.get(ii[2],0)
                         elif ii[3] is not None:
@@ -806,13 +821,16 @@ class PrecipThread(threading.Thread):
                         intsum += duration*intensity
                         weather2x = ii
                 else:
+                    # No precipitation and no short interruption of 
+                    # precipitation
                     is2 = False
                     if dursum:
                         # average precipitation intensity during the last
                         # precipitation period
                         intensity_avg = intsum/dursum
                         # How intense or long the precipitation was?
-                        # Intensity: 0 - unknown, 1 - light, 2 - moderate, 3 - heavy
+                        # Intensity: 0 - unknown, 1 - light, 2 - moderate, 
+                        #            3 - heavy
                         # no source for that rule
                         if intensity_avg>=2.5:
                             # heavy precipitation
@@ -872,7 +890,7 @@ class PrecipThread(threading.Thread):
         else:
             # The significant weather  ended within the last hour. That means, the
             # weather code is 20...29.
-            if start2x and start2x>ts-3600 and weather2x:
+            if start2x and start2x>(ts-3600) and weather2x:
                 return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed,precipstart
             return ww, wawa, start, elapsed, precipstart
     
@@ -989,6 +1007,7 @@ class PrecipThread(threading.Thread):
         ts = time.time()
         ww = None
         wawa = None
+        metar = None
         # record contains value tuples here.
         record = dict()
         if self.model in ('ott-parsivel','ott-parsivel1','ott-parsivel2'):
@@ -1046,6 +1065,7 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
+                    if ii[0]==5: metar = val[0]
                     # additional processing 
                     if ii[0]==2:
                         # rain
@@ -1113,6 +1133,7 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
+                    if ii[4].endswith('METAR'): metar = val[0]
                     # remember state bytes
                     if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
@@ -1142,7 +1163,7 @@ class PrecipThread(threading.Thread):
 
         if record and self.set_weathercodes:
             try:
-                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa)
+                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa, metar)
                 if ww is not None: 
                     record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: 
