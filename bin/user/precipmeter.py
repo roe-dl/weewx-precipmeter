@@ -811,8 +811,20 @@ class PrecipThread(threading.Thread):
                         # precipitation before the first element in the list.
                         # As no information of the intensity is available,
                         # assume light intensity.
-                        dursum = ii[0]-ii[4]
-                        intsum = dursum
+                        if ii[5] is None or ii[6] is None:
+                            dursum = ii[0]-ii[4]
+                            intsum = dursum
+                        else:
+                            dursum = ii[6]
+                            intsum = ii[5]
+                    # Why save intsum and dursum with the list element?
+                    # Elements that end before 1 hour ago are removed
+                    # from the list. If precipitation started more than
+                    # 1 hour ago, intsum and dursum cannot be calculated
+                    # from the beginning. So it is necessary to remember
+                    # the sums.
+                    ii[6] = dursum
+                    ii[5] = intsum
                     #if is_ww_wawa_precipitation(ii[2],ii[3]):
                     if PrecipThread.is_el_precip(ii):
                         # Short interruptions of precipitation are not included
@@ -825,24 +837,12 @@ class PrecipThread(threading.Thread):
                             intensity = 0
                         dursum += duration
                         intsum += duration*intensity
-                        # Why save intsum and dursum with the list element?
-                        # Elements that end before 1 hour ago are removed
-                        # from the list. If precipitation started more than
-                        # 1 hour ago, intsum and dursum cannot be calculated
-                        # from the beginning. So it is necessary to remember
-                        # the sums.
-                        if idx or ii[5] is None or ii[6] is None:
-                            # remember intsum and dursum
-                            ii[6] = dursum
-                            ii[5] = intsum
-                        else:
-                            # use saved intsum and dursum
-                            dursum = ii[6]
-                            intsum = ii[5]
                         weather2x = ii
                 else:
                     # No precipitation and no short interruption of 
                     # precipitation
+                    ii[6] = dursum
+                    ii[5] = intsum
                     is2 = False
                     if dursum:
                         # average precipitation intensity during the last
