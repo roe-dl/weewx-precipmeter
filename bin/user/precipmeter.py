@@ -53,6 +53,9 @@ SIMULATE_ERRONEOUS_READING = False
           not the same as [0].)
           if this weather condition is no precipitation the value is
           None
+    [5] - intsum
+    [6] - dursum
+    [7] - metar value of the weather condition
     
     A short interruption of precipitation is defined as:
     * The interruption is shorter than 10 minutes AND
@@ -703,6 +706,9 @@ class PrecipThread(threading.Thread):
                             last_el[2] = ww
                             last_el[3] = wawa
                             last_el[4] = prev_el[4]
+                            last_el[5] = None
+                            last_el[6] = None
+                            last_el[7] = metar
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         # add a new record or update the timestamp
@@ -714,7 +720,7 @@ class PrecipThread(threading.Thread):
                 # timestamp
                 try:
                     cur = self.db_conn.cursor()
-                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?)',tuple(self.presentweather_list[-1]))
+                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?)',tuple(self.presentweather_list[-1][:5]))
                     self.db_conn.commit()
                     cur.close()
                 except sqlite3.Error as e:
@@ -754,7 +760,7 @@ class PrecipThread(threading.Thread):
                     # actually no precipitation
                     precipstart = None
             # Add the new record.
-            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart])
+            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart,None,None,metar])
         else:
             # The weather code is the same as before, so update the end
             # timestamp.
@@ -819,6 +825,20 @@ class PrecipThread(threading.Thread):
                             intensity = 0
                         dursum += duration
                         intsum += duration*intensity
+                        # Why save intsum and dursum with the list element?
+                        # Elements that end before 1 hour ago are removed
+                        # from the list. If precipitation started more than
+                        # 1 hour ago, intsum and dursum cannot be calculated
+                        # from the beginning. So it is necessary to remember
+                        # the sums.
+                        if idx or ii[5] is None or ii[6] is None:
+                            # remember intsum and dursum
+                            ii[6] = dursum
+                            ii[5] = intsum
+                        else:
+                            # use saved intsum and dursum
+                            dursum = ii[6]
+                            intsum = ii[5]
                         weather2x = ii
                 else:
                     # No precipitation and no short interruption of 
