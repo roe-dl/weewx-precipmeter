@@ -624,6 +624,36 @@ not sending data.
   some erroneous results, but that should be rare. Nothing can be done
   about that. It's the limitation of the device.
 
+* Typical logging messages
+
+  * At WeeWX start:
+
+    ```
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter service version 0.3
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread Parsivel2, host 192.168.241.41, poll interval 5
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': TCP connection to 192.168.241.41:8000
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: accumulator dict for 'Parsivel2': {'ottRain': {'extractor': 'sum'}, 'ottHistory': {'accumulator': 'firstlast', 'adder': 'noop', 'extractor': 'noop'}, ...
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2' starting
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter archive version 0.3
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: Using binding 'precip_binding' to database 'precip.sdb'
+    May  8 14:31:09 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': sensor ok
+    ```
+
+  * During normal operation:
+
+    ```
+    May  8 14:35:18 WeatherPC weewx[1234] INFO user.PrecipMeter: 5 records received from Parsivel2 during archive interval
+    May  8 14:40:18 WeatherPC weewx[1234] INFO user.PrecipMeter: 5 records received from Parsivel2 during archive interval
+    ```
+
+  * At WeeWX stop
+
+    ```
+    May  8 14:40:57 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': shutdown requested
+    May  8 14:40:59 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': self.running==False getRecord() select() r [] w [] x []
+    May  8 14:40:59 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2' stopped
+    ```
+
 ## References
 
 ### Disdrometers
