@@ -55,7 +55,7 @@ ON  | ON  | OFF | OFF | OFF | ON  | ON  | OFF
 * pin 2: RxD A/-
 * pin 7: RxD B/+
 
-<img src="doc/Verbindungskabel-WuT-Parsivel-5523x.jpg" width="400px" />
+<img src="doc/Verbindungskabel-WuT-Parsivel-5523x.jpg" width="400px" /> <img src="doc/Schaltkasten.jpg" width="225px" />
 
 If the distance between the Com-Server++ and the disdrometer is not
 short or both devices are connected to different power supplies, 
