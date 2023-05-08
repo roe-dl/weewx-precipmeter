@@ -13,7 +13,8 @@ Please note: Actually the TCP connection is tested only.
 #### General
 
 In general you need:
-* a disdrometer or present weather sensor
+* a disdrometer or present weather sensor like Ott-Hydromet
+  Parsivel<sup>2</sup> or Thies LNM
 * a converter from RS485 to whatever your computer understands
   (RS485-to-ethernet converter or RS485-to-USB converter)
 * a 24V DC power supply (I recommend using a model including an accumulator
@@ -219,13 +220,21 @@ before and after. This is because the propability of error ist about
 
 [PrecipMeter]
     data_binding = precip_binding
-    weathercodes = Parsivel
-    visibility = Parsivel
+    weathercodes = Parsivel # or Thies
+    visibility = Parsivel # or Thies
     [[Parsivel]]
+        enable = True # or False
         model = Ott-Parsivel2
         prefix = ott
         telegram = "%13;%01;%02;%03;%07;%08;%34;%12;%10;%11;%18;/r/n"
         type = tcp # udp tcp restful usb none
+        host = replace_me
+        port = replace_me
+    [[Thies]]
+        enable = True # or False
+        model = Thies-LNM
+        prefix = thies
+        type = tcp # udp tcp restful usb 
         host = replace_me
         port = replace_me
 
@@ -241,6 +250,8 @@ before and after. This is because the propability of error ist about
   this extension
 * `presentweatherStart`: timestamp of the beginning of the present weather
 * `presentweatherTime`: time elapsed since last change of the present weather
+* `precipitationStart`: timestamp of the beginning of the present
+  precipitation period or `None` if actually no precipitation takes place.
 * `visibility`: visibility, derived from `MOR`
 
 To convert the present weather code into a symbol or icon
