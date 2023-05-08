@@ -630,8 +630,8 @@ not sending data.
 
     ```
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter service version 0.3
-    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread Parsivel2, host 192.168.241.41, poll interval 5
-    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': TCP connection to 192.168.241.41:8000
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread Parsivel2, host 192.168.XXX.XXX, poll interval 5
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': TCP connection to 192.168.XXX.XXX:8000
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: accumulator dict for 'Parsivel2': {'ottRain': {'extractor': 'sum'}, 'ottHistory': {'accumulator': 'firstlast', 'adder': 'noop', 'extractor': 'noop'}, ...
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2' starting
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter archive version 0.3
