@@ -1113,7 +1113,7 @@ class PrecipThread(threading.Thread):
                     if self.next_obs_errors[ii[4]]<time.time():
                         logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
                         self.next_obs_errors[ii[4]] = time.time()+300
-        elif self.model=='thies':
+        elif self.model=='thies-lnm':
             deviceState = [None]*16
             if reply[0]==chr(2): reply = reply[1:]
             if ';' not in reply: reply = ''
