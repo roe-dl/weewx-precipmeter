@@ -167,6 +167,11 @@ The observation types are automatically registered with WeeWX.
 
 ### Accumulators
 
+**Note**: This section is about WeeWX accumulators and their use
+together with this extension. For the internal accumulation 
+because of different data intervals see the 
+[wiki page](https://github.com/roe-dl/weewx-precipmeter/wiki/How-different-data-intervals-are-handled-within-this-extension).
+
 Accumulators define how to aggregate the readings during the
 archive interval.
 This extension tries to set up reasonable accumulators. If
@@ -185,7 +190,7 @@ Additionally the accumulator 'firstlast' as of version 4.10.2 converts
 all values to strings. So it is not suitable for values other than
 strings (like numbers or lists), anyway. 
 
-For the present weather `ww` and `wawa` this extension includes it's
+For the present weather `ww` and `wawa` this extension includes its
 own accumulator. It omits readings that are opposite to the readings
 before and after. This is because the propability of error ist about
 3%. That is quite frequent. So it is handled specially.
@@ -243,6 +248,8 @@ before and after. This is because the propability of error ist about
         type = tcp # udp tcp restful usb
         host = replace_me
         port = replace_me
+        field_separator = replace_me
+        record_separator = replace_me
         [[[loop]]]
             [[[[obs1]]]]
                 name = replace_me # observation type name
@@ -650,8 +657,8 @@ not sending data.
 
     ```
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter service version 0.3
-    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread Parsivel2, host 192.168.XXX.XXX, poll interval 5
-    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': TCP connection to 192.168.XXX.XXX:8000
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread Parsivel2, host XXX.XXX.XXX.XXX, poll interval 5
+    May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2': TCP connection to XXX.XXX.XXX.XXX:8000
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: accumulator dict for 'Parsivel2': {'ottRain': {'extractor': 'sum'}, 'ottHistory': {'accumulator': 'firstlast', 'adder': 'noop', 'extractor': 'noop'}, ...
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: thread 'PrecipMeter-Parsivel2' starting
     May  8 14:31:00 WeatherPC weewx[1234] INFO user.PrecipMeter: PrecipMeter archive version 0.3
