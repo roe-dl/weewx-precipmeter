@@ -237,6 +237,26 @@ before and after. This is because the propability of error ist about
         type = tcp # udp tcp restful usb 
         host = replace_me
         port = replace_me
+    [[GenericDevice]]
+        enable = True # or False
+        model = generic
+        type = tcp # udp tcp restful usb
+        host = replace_me
+        port = replace_me
+        [[[loop]]]
+            [[[[obs1]]]]
+                name = replace_me # observation type name
+                unit = replace_me # supplied unit
+                group = replace_me # unit group
+                sql_datatype = replace_me # REAL, INTEGER, VARCHAR(...)
+                description = replace_me # observation type description
+            [[[[obs2]]]]
+                name = replace_me # observation type name
+                unit = replace_me # supplied unit
+                group = replace_me # unit group
+                sql_datatype = replace_me # REAL, INTEGER, VARCHAR(...)
+                description = replace_me # observation type description
+            ...
 
 ```
 

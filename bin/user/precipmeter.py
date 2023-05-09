@@ -1030,8 +1030,16 @@ class PrecipThread(threading.Thread):
         metar = None
         # record contains value tuples here.
         record = dict()
-        if self.model in ('ott-parsivel','ott-parsivel1','ott-parsivel2'):
-            if ';' not in reply: reply = ''
+        if (self.model.startswith('ott-parsivel') or 
+            self.model in ('thies-lnm','generic')):
+            # Thies LNM: initialize special values, process STX
+            if self.model=='thies-lnm':
+                deviceState = [None]*16
+                if reply[0]==chr(2): reply = reply[1:]
+            # If the remaining telegram string does not contain a field
+            # separator any more, there is no field to process any more.
+            if self.field_separator not in reply: reply = ''
+            # Process telegram fields
             for ii in self.telegram_list:
                 # thread stop requested
                 if not self.running: 
@@ -1041,8 +1049,7 @@ class PrecipThread(threading.Thread):
                 # stop processing
                 if not reply: break
                 # split the first remaining field 
-                # TODO: separator other than semikolon
-                x = reply.split(';',1)
+                x = reply.split(self.field_separator,1)
                 try:
                     val = x[0]
                 except LookupError:
@@ -1059,11 +1066,11 @@ class PrecipThread(threading.Thread):
                     break
                 # convert the field value string to the appropriate data type
                 try:
-                    if ii[0]==19:
+                    if ii[0]==19 and self.model.startswith('ott-parsivel'):
                         # date and time
                         # TODO
                         val = (...,'unixepoch','group_time')
-                    elif ii[0]==34:
+                    elif ii[0]==34 and self.model.startswith('ott-parsivel'):
                         # energy
                         # (According to the unit J/(m^2h) it is not energy
                         # but power.)
@@ -1085,9 +1092,13 @@ class PrecipThread(threading.Thread):
                     # remember weather codes
                     if ii[6]=='group_wmo_wawa': wawa = val[0]
                     if ii[6]=='group_wmo_ww': ww = val[0]
-                    if ii[0]==5: metar = val[0]
+                    if self.model.startswith('ott-parsivel'):
+                        if ii[0]==5: metar = val[0]
+                    elif self.model=='thies-lnm':
+                        if ii[4].endswith('METAR'): metar = val[0]
                     # additional processing 
-                    if ii[0]==2:
+                    if ((ii[0]==2 and self.model.startswith('ott-parsivel')) or
+                        (ii[0]==17 and self.model=='thies-lnm')):
                         # rain
                         if self.last_rain is not None and self.prefix:
                             rain = val[0]-self.last_rain
@@ -1095,17 +1106,22 @@ class PrecipThread(threading.Thread):
                                 rain += 300.0
                             record[self.prefix+'Rain'] = (rain,'mm','group_rain')
                         self.last_rain = val[0]
-                    elif ii[0]==18:
-                        # sensor state
-                        if self.last_sensorState is None or self.last_sensorState!=val[0]:
-                            if val[0]>0:
-                                logerr("thread '%s': sensor error %s" % (self.name,val[0]))
-                            elif self.last_sensorState is None or self.last_sensorState>0:
-                                loginf("thread '%s': sensor ok" % self.name)
-                        self.last_sensorState = val[0]
-                    elif ii[0]==9:
-                        # data sending interval
-                        self.device_interval = val[0]
+                    if self.model.startswith('ott-parsivel'):
+                        # Ott-Hydromet Parsivel1+2
+                        if ii[0]==18:
+                            # sensor state
+                            if self.last_sensorState is None or self.last_sensorState!=val[0]:
+                                if val[0]>0:
+                                    logerr("thread '%s': sensor error %s" % (self.name,val[0]))
+                                elif self.last_sensorState is None or self.last_sensorState>0:
+                                    loginf("thread '%s': sensor ok" % self.name)
+                            self.last_sensorState = val[0]
+                        elif ii[0]==9:
+                            # data sending interval
+                            self.device_interval = val[0]
+                    elif self.model=='thies-lnm':
+                        # Thies LNM
+                        if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
@@ -1113,60 +1129,10 @@ class PrecipThread(threading.Thread):
                     if self.next_obs_errors[ii[4]]<time.time():
                         logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
                         self.next_obs_errors[ii[4]] = time.time()+300
-        elif self.model=='thies-lnm':
-            deviceState = [None]*16
-            if reply[0]==chr(2): reply = reply[1:]
-            if ';' not in reply: reply = ''
-            for ii in self.telegram_list:
-                # thread stop requested
-                if not self.running: return
-                # if there are not enough fields within the data telegram
-                # stop processing
-                if not reply: break
-                # split the first remaining field 
-                # TODO: separator other than semikolon
-                x = reply.split(';',1)
-                try:
-                    val = x[0]
-                except LookupError:
-                    val = ''
-                try:
-                    reply = x[1]
-                except LookupError:
-                    reply = ''
-                # convert the field value string to the appropriate data type
-                try:
-                    if ii[5]=='string':
-                        # string
-                        val = (str(val),None,None)
-                    elif ii[7]=='INTEGER':
-                        # counter, wawa, ww
-                        val = (int(val),ii[5],ii[6])
-                    elif ii[7]=='REAL':
-                        # float
-                        val = (float(val),ii[5],ii[6])
-                    else:
-                        print('error')
-                    if ii[4]:
-                        # ii[4] already includes prefix here.
-                        record[ii[4]] = val
-                    # remember weather codes
-                    if ii[6]=='group_wmo_wawa': wawa = val[0]
-                    if ii[6]=='group_wmo_ww': ww = val[0]
-                    if ii[4].endswith('METAR'): metar = val[0]
-                    # remember state bytes
-                    if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]
-                except (LookupError,ValueError,TypeError,ArithmeticError) as e:
-                    # log the same error once in 300 seconds only
-                    if ii[4] not in self.next_obs_errors:
-                        self.next_obs_errors[ii[4]] = 0
-                    if self.next_obs_errors[ii[4]]<time.time():
-                        logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
-                        self.next_obs_errors[ii[4]] = time.time()+300
-                # list of state values (no. 22 to 37)
-                if self.prefix:
-                    record[self.prefix+'DeviceError'] = (deviceState[0:7],'byte','group_data')
-                    record[self.prefix+'DeviceWarning'] = (deviceState[7:15],'byte','group_data')
+            # Thies LNM: list of state values (no. 22 to 37)
+            if self.model=='thies-lnm' and self.prefix:
+                record[self.prefix+'DeviceError'] = (deviceState[0:7],'byte','group_data')
+                record[self.prefix+'DeviceWarning'] = (deviceState[7:15],'byte','group_data')
         #elif self.model=='...'
         #    ...
         else:
