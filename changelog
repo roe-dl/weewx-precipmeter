@@ -7,3 +7,5 @@
 * more postprocessing for ww and wawa
 0.3
 * present weather postprocessing rewritten
+* configurable field and record separator
+* self-monitor tcp/udp connection

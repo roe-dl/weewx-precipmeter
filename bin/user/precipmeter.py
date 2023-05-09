@@ -498,6 +498,7 @@ class PrecipThread(threading.Thread):
         self.data_queue = data_queue
         self.query_interval = query_interval
         self.device_interval = 60
+        self.last_data_ts = time.time()
 
         self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
         self.db_conn = None
@@ -530,6 +531,7 @@ class PrecipThread(threading.Thread):
         self.port = int(conf_dict.get('port'))
         
         self.running = True
+        self.evt = threading.Event()
         
         if self.connection_type=='udp':
             # The device sends data by UDP.
@@ -565,6 +567,7 @@ class PrecipThread(threading.Thread):
     def shutDown(self):
         """ Request thread shutdown. """
         self.running = False
+        self.evt.set()
         loginf("thread '%s': shutdown requested" % self.name)
     
     def socket_open(self):
@@ -928,13 +931,20 @@ class PrecipThread(threading.Thread):
             # control the interval. We have to process the data as they
             # arrive. The select() function pauses the thread until data
             # is available.
+            if self.last_data_ts<time.time()-600 and self.socket:
+                # The last data arrived more than 10 minutes ago. May
+                # be the connection is broken. Close it to force it
+                # re-opened
+                self.socket_close()
+                logerr("thread '%s': no data for more than 10 minutes. Re-open socket." % self.name)
+                self.evt.wait(self.query_interval)
             if not self.socket: 
                 # If the socket is not opened, open it.
                 self.socket_open()
             if not self.socket: 
                 # The socket could not be opened. Wait and then return,
                 # which means to try it again.
-                time.sleep(self.query_interval)
+                self.evt.wait(self.query_interval)
                 return
             reply = b''
             while self.running:
@@ -1194,6 +1204,7 @@ class PrecipThread(threading.Thread):
             print(record)
         if ot=='loop':
             self.put_data(record)
+            self.last_data_ts = time.time()
         
     def put_data(self, x):
         if x:
@@ -1220,7 +1231,7 @@ class PrecipThread(threading.Thread):
                         self.getRecord('once')
                 else:
                     if not self.running: break
-                    time.sleep(self.query_interval)
+                    self.evt.wait(self.query_interval)
         except Exception as e:
             logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
         finally:
