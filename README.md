@@ -34,8 +34,10 @@ item | amount | description | manufacturer |
 02   | 1 pc.  | Com-Server++ 58665 | Wiesemann & Theis GmbH |
 03   | 1 pc.  | 9 pin sub-D connector female 11904 | Wiesemann & Theis GmbH |
 04   | 1 pc.  | power supply APU230V.24V-6A/20Ah *) | Rinck Electronics Germany GmbH |
-05   | 1 pc.  | electric cabinet AX | Rittal |
-06   | 2.33 m  | pipe 2" | |
+05   | 1 pc.  | electric cabinet AX 400x500x210 art. 1045000 (including mounting plate and assembling material) | RITTAL GmbH & Co. KG |
+06   | 1 set  | mast mounting set for AX art. 2584100 | RITTAL GmbH & Co. KG |
+07   | 0.40 m | top hat DIN rail IEC/EN 60715 | |
+08   | 2.33 m | pipe 2" | |
 
 *) If the grid power is more reliable at your location than at mine,
    you can order that power supply with a smaller accumulator.
