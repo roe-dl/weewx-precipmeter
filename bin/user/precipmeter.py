@@ -498,7 +498,7 @@ class PrecipThread(threading.Thread):
         self.data_queue = data_queue
         self.query_interval = query_interval
         self.device_interval = 60
-        self.last_data_ts = time.time()
+        self.last_data_ts = time.time()+120
 
         self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
         self.db_conn = None
@@ -584,6 +584,7 @@ class PrecipThread(threading.Thread):
                 self.socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM | socket.SOCK_CLOEXEC)
                 #select.select([self.socket],[self.socket],[self.socket])
                 self.socket.connect((self.host,self.port))
+            self.last_data_ts = time.time()+120
         except OSError as e:
             logerr("thread '%s': opening connection to %s:%s failed with %s %s, will be tried again" % (self.name,self.host,self.port,e.__class__.__name__,e))
             self.socket_close()
@@ -931,7 +932,7 @@ class PrecipThread(threading.Thread):
             # control the interval. We have to process the data as they
             # arrive. The select() function pauses the thread until data
             # is available.
-            if self.last_data_ts<time.time()-600 and self.socket:
+            if self.last_data_ts<time.time() and self.socket:
                 # The last data arrived more than 10 minutes ago. May
                 # be the connection is broken. Close it to force it
                 # re-opened
@@ -1204,7 +1205,7 @@ class PrecipThread(threading.Thread):
             print(record)
         if ot=='loop':
             self.put_data(record)
-            self.last_data_ts = time.time()
+            self.last_data_ts = time.time()+600
         
     def put_data(self, x):
         if x:

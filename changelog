@@ -9,3 +9,4 @@
 * present weather postprocessing rewritten
 * configurable field and record separator
 * self-monitor tcp/udp connection
+* replace time.sleep() by Event.wait() to better support shutdown
