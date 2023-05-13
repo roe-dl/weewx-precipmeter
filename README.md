@@ -153,9 +153,11 @@ Actually none.
 
 ### Device configuration
 
-* `model`: device model (actually `Ott-Parsivel1` or `Ott-Parsivel2`)
-* `prefix`: observation type name prefix (default `ott`)
-* `telegram`: telegram configuration string as set up in the device
+* `model`: device model (actually `Ott-Parsivel1`, `Ott-Parsivel2`,
+  `Thies-LNM` or `generic`)
+* `prefix`: observation type name prefix (default `ott` for Ott-Parsivel
+  or `thies` for Thies-LNM)
+* `telegram`: telegram configuration as set up in the device
   (Instead of this key a `[[[loop]]]` sub-subsection can be used 
   to define the observation types measured by the device.)
 * `field_separator`: data field separator. Optional. Default is `;`.
@@ -241,6 +243,7 @@ before and after. This is because the propability of error ist about
         enable = True # or False
         model = Thies-LNM
         prefix = thies
+        telegram = 4 # 4...10, default 4
         type = tcp # udp tcp restful usb 
         host = replace_me
         port = replace_me

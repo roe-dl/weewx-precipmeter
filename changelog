@@ -10,3 +10,11 @@
 * configurable field and record separator
 * self-monitor tcp/udp connection
 * replace time.sleep() by Event.wait() to better support shutdown
+* added METAR to presentweather_list
+* added intsum and dursum to presentweather_list
+0.4
+* reordered presentweather_list
+* added METAR to thread database
+* added WeeWX-table-like view to thread database
+* fix bug that prevents start of precipitation timestamps being saved in short interruptions
+* support for different telegram types of Thies LNM

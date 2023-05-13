@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.3"
+VERSION = "0.4"
 
 SIMULATE_ERRONEOUS_READING = False
 
@@ -53,9 +53,9 @@ SIMULATE_ERRONEOUS_READING = False
           not the same as [0].)
           if this weather condition is no precipitation the value is
           None
-    [5] - intsum
-    [6] - dursum
-    [7] - metar value of the weather condition
+    [5] - metar value of the weather condition
+    [6] - intsum
+    [7] - dursum
     
     A short interruption of precipitation is defined as:
     * The interruption is shorter than 10 minutes AND
@@ -230,13 +230,13 @@ PARSIVEL = [
   (93,'Rohdaten',4095,'000S','raw','count','group_count')
 ]
 
-THIES = [
+THIES_READINGS = [
   #Nr,Beschreibung,Stellen,Form,Größe,Einheit,Gruppe
   # 1 STX
   # device information and identification
   ( 2,'Geräteadresse',2,'00',None,'string',None),
   ( 3,'Seriennummer',4,'NNNN','SNR','string',None),
-  ( 4,'Software-Version',5,'N.NN',None,'string',None),
+  ( 4,'Software-Version',4,'N.NN',None,'string',None),
   ( 5,'Gerätedatum',8,'tt.mm.jj',None,'string',None),
   ( 6,'Gerätezeit zur Abfrage',8,'hh:mm:ss',None,'string',None),
   # readings (5 minutes averages)
@@ -256,6 +256,8 @@ THIES = [
   (19,'1-Minuten-Wert Radarreflektivität',4,'NN.N','dBZ','dB','group_db'),
   (20,'Qualitätsmaß',3,'NNN',None,'percent','group_percent'),
   (21,'1-Minuten-Wert maximaler Hageldurchmesser',3,'N.N',None,'mm',None),
+]
+THIES_STATE = [
   # 22...37 device state values
   (22,'Status Laser 0-an 1-aus',1,'N',None,'boolean','group_boolean'),
   (23,'Status statistisches Signal 0-ok 1-Fehler',1,'N',None,'boolean','group_boolean'),
@@ -289,6 +291,8 @@ THIES = [
   (50,'Strom Bügelheizung',4,'NNNN',None,'milliamp','group_amp'),
   # particle count
   (51,'Anzahl aller gemessenen Partikel',5,'particleCount','count','group_count'),
+]
+THIES_INTERNAL = [
   (52,'interne Daten',9,'00000.000',None,None,None),
   (53,'Partikelanzahl < minimale Geschwindigkeit',5,'NNNNN','particleCountTooSlow','count','group_count'),
   (54,'interne Daten',9,'00000.000',None,None,None),
@@ -298,13 +302,69 @@ THIES = [
   (58,'interne Daten',9,'00000.000',None,None,None),
   # internal data 59...80
   (59,'Partikelanzahl kein Hydrometeor',5,'NNNNN',None,'count','group_count'),
-  # ...
-  # raw data 81...520
-  # ...
-  # 521 checksum 
-  # 522 CRLF
-  # 523 ETX
+  (60,'Gesamtvolumen (brutto) kein Hydrometeor',9,'',None,None,None),
+  (61,'Partikelanzahl mit unbekannter Klassifizierung',5,'',None,'count','group_count'),
+  (62,'Gesamtvolumen (brutto) unbekannte Klassifizierung',9,'',None,None,None),
+  (63,'Partikelanzahl Klasse 1',5,'NNNNN',None,'count','group_count'),
+  (64,'Gesamtvolumen (brutto) Klasse 1',9,'',None,None,None),
+  (65,'Partikelanzahl Klasse 2',5,'NNNNN',None,'count','group_count'),
+  (66,'Gesamtvolumen (brutto) Klasse 2',9,'',None,None,None),
+  (67,'Partikelanzahl Klasse 3',5,'NNNNN',None,'count','group_count'),
+  (68,'Gesamtvolumen (brutto) Klasse 3',9,'',None,None,None),
+  (69,'Partikelanzahl Klasse 4',5,'NNNNN',None,'count','group_count'),
+  (70,'Gesamtvolumen (brutto) Klasse 4',9,'',None,None,None),
+  (71,'Partikelanzahl Klasse 5',5,'NNNNN',None,'count','group_count'),
+  (72,'Gesamtvolumen (brutto) Klasse 5',9,'',None,None,None),
+  (73,'Partikelanzahl Klasse 6',5,'NNNNN',None,'count','group_count'),
+  (74,'Gesamtvolumen (brutto) Klasse 6',9,'',None,None,None),
+  (75,'Partikelanzahl Klasse 7',5,'NNNNN',None,'count','group_count'),
+  (76,'Gesamtvolumen (brutto) Klasse 7',9,'',None,None,None),
+  (77,'Partikelanzahl Klasse 8',5,'NNNNN',None,'count','group_count'),
+  (78,'Gesamtvolumen (brutto) Klasse 8',9,'',None,None,None),
+  (79,'Partikelanzahl Klasse 9',5,'NNNNN',None,'count','group_count'),
+  (80,'Gesamtvolumen (brutto) Klasse 9',9,'',None,None,None),
 ]
+THIES_RAW = [
+  (ii+81,'Niederschlagssprektrum',3,'NNN','raw%04d' % ii,'count','group_count') for ii in range(440)
+]
+THIES_AUX = [
+  (521,'Temperatur',5,'NNN.N','outTemp','degree_C','group_temperature'),
+  (522,'relative Luftfeuchte',5,'NNN.N','outHumidity','percent','group_percent'),
+  (523,'Windgeschwindigkeit',4,'NN.N','windSpeed','meter_per_second','group_speed'),
+  (524,'Windrichtung',3,'NNN','windDir','degree','group_direction')
+]
+THIES_AVG_4680 = [
+  (56,'Mittelungszeitraum',2,'NN','avginterval','minute','group_deltatime'),
+  (57,'mittlere Intensität',7,'NNN.NNN','rainRateAvg','mm_per_hour','group_rainrate'),
+  (58,'maximale 1-Min-Intensität im Mittelungszeitraum',7,'NNN.NNN','rainRateMax','mm_per_hour','group_rainrate'),
+  (59,'Maximalwert SYNOP 4680 im Mittelungszeitraum',2,'NN','wawaMax','byte','group_wmo_wawa'),
+  (60,'1-Minuten-SYNOP 4680 -9 min.',2,'NN','wawa9','byte','group_wmo_wawa'),
+  (61,'1-Minuten-SYNOP 4680 -8 min.',2,'NN','wawa8','byte','group_wmo_wawa'),
+  (62,'1-Minuten-SYNOP 4680 -7 min.',2,'NN','wawa7','byte','group_wmo_wawa'),
+  (63,'1-Minuten-SYNOP 4680 -6 min.',2,'NN','wawa6','byte','group_wmo_wawa'),
+  (64,'1-Minuten-SYNOP 4680 -5 min.',2,'NN','wawa5','byte','group_wmo_wawa'),
+  (65,'1-Minuten-SYNOP 4680 -4 min.',2,'NN','wawa4','byte','group_wmo_wawa'),
+  (66,'1-Minuten-SYNOP 4680 -3 min.',2,'NN','wawa3','byte','group_wmo_wawa'),
+  (67,'1-Minuten-SYNOP 4680 -2 min.',2,'NN','wawa2','byte','group_wmo_wawa'),
+  (68,'1-Minuten-SYNOP 4680 -1 min.',2,'NN','wawa1','byte','group_wmo_wawa'),
+  (69,'1-Minuten-SYNOP 4680 Sendezeitpunkt',2,'NN','wawa0','byte','group_wmo_wawa'),
+]
+THIES_CHKSUM = [
+  (525,'Prüfsumme',2,'AA',None,'string',None)
+  # 526 CRLF
+  # 527 ETX
+]
+THIES = {
+  4:THIES_READINGS + THIES_STATE + THIES_INTERNAL + THIES_RAW + THIES_CHKSUM,
+  5:THIES_READINGS + THIES_STATE + THIES_INTERNAL + THIES_RAW + THIES_AUX + THIES_CHKSUM,
+  6:THIES_READINGS + THIES_STATE + THIES_CHKSUM,
+  7:THIES_READINGS + THIES_STATE + THIES_AUX + THIES_CHKSUM,
+  8:THIES_READINGS + THIES_CHKSUM,
+  9:THIES_READINGS + THIES_AUX + THIES_CHKSUM,
+  10:THIES_READINGS + THIES_STATE + THIES_AUX + THIES_AVG_4680 + THIES_CHKSUM
+}
+
+#for ii in THIES: print(ii,sum([jj[2]+1 for jj in THIES[ii]])+4)
 
 # "state after something" weather codes
 
@@ -448,14 +508,16 @@ WAWA_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WAWA_INTENSITY))
 
 exclude_from_summary = ['dateTime', 'usUnits', 'interval','presentweatherTime']
 
-table = [('dateTime',             'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
-         ('usUnits',              'INTEGER NOT NULL'),
-         ('interval',             'INTEGER NOT NULL'),
-         ('ww',                   'INTEGER'),
-         ('wawa',                 'INTEGER'),
-         ('presentweatherStart',  'INTEGER'),
-         ('presentweatherTime',   'REAL'),
-         ('precipitationStart',   'INTEGER')]
+table = [
+    ('dateTime',             'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
+    ('usUnits',              'INTEGER NOT NULL'),
+    ('interval',             'INTEGER NOT NULL'),
+    ('ww',                   'INTEGER'),
+    ('wawa',                 'INTEGER'),
+    ('presentweatherStart',  'INTEGER'),
+    ('presentweatherTime',   'REAL'),
+    ('precipitationStart',   'INTEGER')
+]
 
 def day_summaries(table):
     return [(e[0], 'scalar') for e in table
@@ -463,8 +525,25 @@ def day_summaries(table):
 
 schema = {
     'table': table,
-    'day_summaries' : day_summaries(table)
+    'day_summaries': day_summaries(table)
     }
+
+# SQL VIEW to the weather condition codes history
+
+weatherconditionschema = {
+    'table': [
+        ('dateTime',             'INTEGER NOT NULL UNIQUE PRIMARY KEY'),
+        ('usUnits',              'INTEGER NOT NULL'),
+        ('interval',             'INTEGER NOT NULL'),
+        ('presentweatherStart',  'INTEGER'),
+        ('precipitationStart',   'INTEGER'),
+        ('presentweatherTime',   'REAL'),
+        ('ww',                   'INTEGER'),
+        ('wawa',                 'INTEGER'),
+        ('METAR',                'INTEGER')
+    ],
+    'day_summaries': []
+}
 
 ##############################################################################
 
@@ -614,7 +693,8 @@ class PrecipThread(threading.Thread):
                 #reply = cur.execute('SELECT * FROM precipitation WHERE `start`>%d' % (time.time()-3600))
                 #self.presentweather_list = reply.fetchall()
             else:
-                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER,`precipstart` INTEGER)')
+                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER,`precipstart` INTEGER,`METAR` VARCHAR(5))')
+                cur.execute('CREATE VIEW archive(`dateTime`,`usUnits`,`interval`,`presentweatherStart`,`precipitationStart`,`presentweatherTime`,`ww`,`wawa`,`METAR`) AS SELECT stop,16,(stop-start)/60,start,precipstart,stop-start,ww,wawa,METAR from precipitation order by stop')
             self.db_conn.commit()
             cur.close()
         except sqlite3.Error as e:
@@ -710,28 +790,17 @@ class PrecipThread(threading.Thread):
                             last_el[2] = ww
                             last_el[3] = wawa
                             last_el[4] = prev_el[4]
-                            last_el[5] = None
                             last_el[6] = None
-                            last_el[7] = metar
+                            last_el[7] = None
+                            last_el[5] = metar
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         # add a new record or update the timestamp
         if add:
             # The weather code changed, so add a new record.
             if len(self.presentweather_list)>0:
-                # There are already elements in the list. Save the last
-                # one to database and determine the start of precipitation
-                # timestamp
-                try:
-                    cur = self.db_conn.cursor()
-                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?)',tuple(self.presentweather_list[-1][:5]))
-                    self.db_conn.commit()
-                    cur.close()
-                except sqlite3.Error as e:
-                    logerr("thread '%s': SQLITE INSERT %s %s" % (self.name,e.__class__.__name__,e))
-                except LookupError:
-                    pass
-                # determine start timestamp of precipitation
+                # There are already elements in the list. First determine 
+                # start timestamp of precipitation if any
                 was_precipitation = PrecipThread.is_el_precip(self.presentweather_list[-1])
                 if is_precipitation and was_precipitation:
                     # precipitation continues, changed weather code only
@@ -752,6 +821,16 @@ class PrecipThread(threading.Thread):
                 else:
                     # actually no precipitation
                     precipstart = None
+                # save the last element to the database
+                try:
+                    cur = self.db_conn.cursor()
+                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?,?)',tuple(self.presentweather_list[-1][:6]))
+                    self.db_conn.commit()
+                    cur.close()
+                except sqlite3.Error as e:
+                    logerr("thread '%s': SQLITE INSERT %s %s" % (self.name,e.__class__.__name__,e))
+                except LookupError:
+                    pass
             else:
                 # The list is empty. That means there is no information about 
                 # the previous weather condition available.
@@ -764,7 +843,7 @@ class PrecipThread(threading.Thread):
                     # actually no precipitation
                     precipstart = None
             # Add the new record.
-            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart,None,None,metar])
+            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart,metar,None,None])
         else:
             # The weather code is the same as before, so update the end
             # timestamp.
@@ -815,20 +894,20 @@ class PrecipThread(threading.Thread):
                         # precipitation before the first element in the list.
                         # As no information of the intensity is available,
                         # assume light intensity.
-                        if ii[5] is None or ii[6] is None:
+                        if ii[6] is None or ii[7] is None:
                             dursum = ii[0]-ii[4]
                             intsum = dursum
                         else:
-                            dursum = ii[6]
-                            intsum = ii[5]
+                            dursum = ii[7]
+                            intsum = ii[6]
                     # Why save intsum and dursum with the list element?
                     # Elements that end before 1 hour ago are removed
                     # from the list. If precipitation started more than
                     # 1 hour ago, intsum and dursum cannot be calculated
                     # from the beginning. So it is necessary to remember
                     # the sums.
-                    ii[6] = dursum
-                    ii[5] = intsum
+                    ii[7] = dursum
+                    ii[6] = intsum
                     #if is_ww_wawa_precipitation(ii[2],ii[3]):
                     if PrecipThread.is_el_precip(ii):
                         # Short interruptions of precipitation are not included
@@ -845,8 +924,8 @@ class PrecipThread(threading.Thread):
                 else:
                     # No precipitation and no short interruption of 
                     # precipitation
-                    ii[6] = dursum
-                    ii[5] = intsum
+                    ii[7] = dursum
+                    ii[6] = intsum
                     is2 = False
                     if dursum:
                         # average precipitation intensity during the last
@@ -1388,8 +1467,11 @@ class PrecipData(StdService):
             # The prefix is 'thies' if the user did not set a prefix.
             if 'prefix' not in thread_dict:
                 thread_dict['prefix'] = 'thies'
+            if 'telegram' not in thread_dict:
+                thread_dict['telegram'] = 4
+            telegram = weeutil.weeutil.to_int(thread_dict['telegram'])
             t = []
-            for ii in THIES:
+            for ii in THIES[telegram]:
                 if ii[4]:
                     if thread_dict['prefix']:
                         obstype = thread_dict['prefix']+ii[4][0].upper()+ii[4][1:]
