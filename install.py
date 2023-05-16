@@ -10,7 +10,7 @@ def loader():
 class PrecipInstaller(ExtensionInstaller):
     def __init__(self):
         super(SNMPInstaller, self).__init__(
-            version="0.4",
+            version="0.5",
             name='precipmeter',
             description='',
             author="Johanna Roedenbeck",

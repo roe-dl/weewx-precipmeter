@@ -10,7 +10,7 @@ Please note: Actually the TCP connection is tested only.
 
 ### Hardware
 
-#### General
+#### General overview
 
 In general you need:
 * a disdrometer or present weather sensor like Ott-Hydromet
@@ -606,7 +606,7 @@ Example how that table could look like:
 * Connect the PC to the Parsivel<sup>2</sup> by an USB wire
 * Start a terminal application on the PC
   - macOS: `screen /dev/tty.usb...`
-  - Windows: 
+  - Windows: [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/)
 * If the connection is working properly, a data telegram is shown
   every minute (or whatever interval is set up into the device).
 * Use the commands as described in the Parsivel<sup>2</sup> manual

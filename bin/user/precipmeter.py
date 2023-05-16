@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.4"
+VERSION = "0.5"
 
 SIMULATE_ERRONEOUS_READING = False
 
@@ -42,20 +42,24 @@ SIMULATE_ERRONEOUS_READING = False
         3 - laser defective
         
     self.presentweather_list elements are a list of:
-    [0] - start timestamp of the weather condition
-    [1] - end timestamp of the weather condition (updated each time,
-          the same weather condition is reported as before)
-    [2] - ww value of the weather condition
-    [3] - wawa value of the weather conditon
-    [4] - if this weather condition is precipitation the start timestamp
-          of the precipitation (If the weather condition changes
-          during precipitation in intensity or kind, this value is
-          not the same as [0].)
-          if this weather condition is no precipitation the value is
-          None
-    [5] - metar value of the weather condition
-    [6] - intsum
-    [7] - dursum
+    [0]  - start timestamp of the weather condition
+    [1]  - end timestamp of the weather condition (updated each time,
+           the same weather condition is reported as before)
+    [2]  - ww value of the weather condition
+    [3]  - wawa value of the weather conditon
+    [4]  - if this weather condition is precipitation the start timestamp
+           of the precipitation (If the weather condition changes
+           during precipitation in intensity or kind, this value is
+           not the same as [0].)
+           if this weather condition is no precipitation the value is
+           None
+    [5]  - metar value of the weather condition
+    [6]  - intsum
+    [7]  - dursum
+    [8]  - sum of rain rate readings received during this weather condition
+    [9]  - count of rain rate readings received during this weather condition
+    [10] - last value of accumulated or absolute rain received during this
+           weather condition
     
     A short interruption of precipitation is defined as:
     * The interruption is shorter than 10 minutes AND
@@ -572,6 +576,7 @@ class PrecipThread(threading.Thread):
         self.set_weathercodes = conf_dict.get('weathercodes',name)==name
         self.set_visibility = conf_dict.get('visibility',name)==name
         self.set_precipitation = conf_dict.get('precipitation','-----')==name
+        self.set_rainDur = conf_dict.get('rainDur','-----')==name
         self.prefix = conf_dict.get('prefix')
         
         self.data_queue = data_queue
@@ -693,8 +698,8 @@ class PrecipThread(threading.Thread):
                 #reply = cur.execute('SELECT * FROM precipitation WHERE `start`>%d' % (time.time()-3600))
                 #self.presentweather_list = reply.fetchall()
             else:
-                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER,`precipstart` INTEGER,`METAR` VARCHAR(5))')
-                cur.execute('CREATE VIEW archive(`dateTime`,`usUnits`,`interval`,`presentweatherStart`,`precipitationStart`,`presentweatherTime`,`ww`,`wawa`,`METAR`) AS SELECT stop,16,(stop-start)/60,start,precipstart,stop-start,ww,wawa,METAR from precipitation order by stop')
+                cur.execute('CREATE TABLE precipitation(`start` INTEGER NOT NULL UNIQUE PRIMARY KEY,`stop` INTEGER NOT NULL,`ww` INTEGER,`wawa` INTEGER,`precipstart` INTEGER,`METAR` VARCHAR(5),`rainRate` REAL,`rain` REAL)')
+                cur.execute('CREATE VIEW archive(`dateTime`,`usUnits`,`interval`,`presentweatherStart`,`precipitationStart`,`presentweatherTime`,`ww`,`wawa`,`METAR`,`rainRate`,`rain`) AS SELECT stop,17,(stop-start)/60,start,precipstart,stop-start,ww,wawa,METAR,rainRate,rain from precipitation order by stop')
             self.db_conn.commit()
             cur.close()
         except sqlite3.Error as e:
@@ -714,7 +719,7 @@ class PrecipThread(threading.Thread):
     def is_el_precip(el):
         return is_ww_wawa_precipitation(el[2],el[3])
     
-    def presentweather(self, ts, ww, wawa, metar):
+    def presentweather(self, ts, ww, wawa, metar, p_abs, p_rate):
         """ Postprocessing of ww and wawa.
             
             enhances ww and wawa and calculates `presentweatherStart`,
@@ -793,6 +798,9 @@ class PrecipThread(threading.Thread):
                             last_el[6] = None
                             last_el[7] = None
                             last_el[5] = metar
+                            last_el[8] = p_rate
+                            last_el[9] = 1
+                            last_el[10] = p_abs
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         # add a new record or update the timestamp
@@ -821,10 +829,25 @@ class PrecipThread(threading.Thread):
                 else:
                     # actually no precipitation
                     precipstart = None
+                # average precipitation rate
+                # Note: self.presentweather_list[-1][9] can be 0.
+                try:
+                    p_rate_avg = self.presentweather_list[-1][8]/self.presentweather_list[-1][9]
+                except (LookupError,TypeError,ValueError,ArithmeticError):
+                    p_rate_avg = None
+                # total amount of precipitation while the weather cond. lasts
+                try:
+                    p_amount = self.presentweather_list[-1][10]-self.presentweather_list[-2][10]
+                    if p_amount<0:
+                        # TODO: if the max. is really 300, add 300 instead
+                        # of raising an exception
+                        raise ValueError('overflow')
+                except (LookupError,TypeError,ValueError,ArithmeticError):
+                    p_amount = None
                 # save the last element to the database
                 try:
                     cur = self.db_conn.cursor()
-                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?,?)',tuple(self.presentweather_list[-1][:6]))
+                    cur.execute('INSERT INTO precipitation VALUES (?,?,?,?,?,?,?,?)',tuple(self.presentweather_list[-1][:6]+[p_rate_avg,p_amount]))
                     self.db_conn.commit()
                     cur.close()
                 except sqlite3.Error as e:
@@ -843,12 +866,24 @@ class PrecipThread(threading.Thread):
                     # actually no precipitation
                     precipstart = None
             # Add the new record.
-            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart,metar,None,None])
+            if p_rate is None:
+                sm = 0.0
+                ct = 0.0
+            else:
+                sm = p_rate
+                ct = 1.0
+            self.presentweather_list.append([int(ts-self.device_interval),int(ts),ww,wawa,precipstart,metar,None,None,sm,ct,p_abs])
         else:
             # The weather code is the same as before, so update the end
             # timestamp.
             self.presentweather_list[-1][1] = int(ts)
             precipstart = self.presentweather_list[-1][4]
+            try:
+                self.presentweather_list[-1][8] += p_rate
+                self.presentweather_list[-1][9] += 1.0
+            except (LookupError,TypeError,ValueError,ArithmeticError):
+                pass
+            self.presentweather_list[-1][10] = p_abs
         # remove the first element if it ends more than an hour ago
         if self.presentweather_list[0][1]<(ts-3600):
             self.presentweather_list.pop(0)
@@ -1092,18 +1127,22 @@ class PrecipThread(threading.Thread):
                     if since==30:
                         loginf("Simulator: erroneous value ###########################################")
                         ww = 51
+                        rainrate = 0.1
                     else:
                         ww = 0
+                        rainrate = 0.0
                 else:
                     # 30s no precipitation, then 90s rain, then again no
                     # precipitation
                     if since<30: self.rain_simulator = 0
                     if since>120 or since<30: 
                         ww = 0
+                        rainrate = 0.0
                     else:
                         ww = 53
+                        rainrate = 0.1
                         self.rain_simulator += 0.25
-                reply = "200248;000.000;%7.2f;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (self.rain_simulator,ww,temp)
+                reply = "200248;%7.3f;%7.2f;%02d;-9.999;9999;000.00;%03d;15759;00000;0;\r\n" % (rainrate,self.rain_simulator,ww,temp)
         
         if not self.running: 
             loginf("thread '%s': self.running==False getRecord() after reading data" % self.name)
@@ -1118,6 +1157,8 @@ class PrecipThread(threading.Thread):
         ww = None
         wawa = None
         metar = None
+        p_abs = None
+        p_rate = None
         # record contains value tuples here.
         record = dict()
         if (self.model.startswith('ott-parsivel') or 
@@ -1209,9 +1250,17 @@ class PrecipThread(threading.Thread):
                         elif ii[0]==9:
                             # data sending interval
                             self.device_interval = val[0]
+                        elif ii[0]==1:
+                            # rain intensity
+                            p_rate = val[0]
+                        elif ii[0]==2:
+                            # rain accumulated
+                            p_abs = val[0]
                     elif self.model=='thies-lnm':
                         # Thies LNM
                         if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]
+                        if ii[0]==14: p_rate = val[0]
+                        if ii[0]==17: p_abs = val[0]
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     # log the same error once in 300 seconds only
                     if ii[4] not in self.next_obs_errors:
@@ -1236,10 +1285,15 @@ class PrecipThread(threading.Thread):
         if record and self.prefix:
             # history of present weather codes of the last hour
             record[self.prefix+'History'] = (self.presentweather_list,'byte','group_data')
+            # precipitation duration
+            record[self.prefix+'RainDur'] = (
+                self.device_interval if is_ww_wawa_precipitation(ww,wawa) else 0.0,
+                'second',
+                'group_deltatime')
 
         if record and self.set_weathercodes:
             try:
-                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa, metar)
+                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa, metar, p_abs, p_rate)
                 if ww is not None: 
                     record['ww'] = (ww,'byte','group_wmo_ww')
                 if wawa is not None: 
@@ -1275,7 +1329,13 @@ class PrecipThread(threading.Thread):
                     record['rain'] = record[self.prefix+'Rain']
                 if (self.prefix+'RainRate') in record:
                     record['rainRate'] = record[self.prefix+'RainRate']
-            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+            except (LookupError,ValueError,TypeError,ArithmeticError):
+                pass
+        if record and self.set_rainDur and self.prefix:
+            try:
+                if (self.prefix+'RainDur') in record:
+                    record['rainDur'] = record[self.prefix+'RainDur']
+            except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         
         # send record to queue for processing in the main thread
@@ -1528,6 +1588,12 @@ class PrecipData(StdService):
             global table
             table.append((obstype,obsgroup))
             _accum[obstype] = ACCUM_SUM
+            # precipitation duration
+            obstype = thread_dict['prefix']+'RainDur'
+            obsgroup = 'group_deltatime'
+            weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
+            table.append((obstype,obsgroup))
+            _accum[obstype] = ACCUM_SUM
             # present weather code history of the last hour
             # (for debugging purposes)
             obstype = thread_dict['prefix']+'History'
@@ -1606,6 +1672,7 @@ class PrecipData(StdService):
         """ Get and process data from the threads. """
         AVG_GROUPS = ('group_temperature','group_db','group_distance','group_volt')
         MAX_GROUPS = ('group_wmo_ww','group_wmo_wawa')
+        SUM_GROUPS = ('group_deltatime',)
         # get collected data
         data = dict()
         ct = 0
@@ -1622,8 +1689,9 @@ class PrecipData(StdService):
                 for key,val in data1[1].items():
                     if key in data:
                         # further occurances of the observation type
-                        if (self.threads[thread_name].get('prefix') and
-                            key==(self.threads[thread_name]['prefix']+'Rain')):
+                        if ((self.threads[thread_name].get('prefix') and
+                            key==(self.threads[thread_name]['prefix']+'Rain')) or
+                            val[2] in SUM_GROUPS):
                             # calculate rain amount during interval
                             try:
                                 data[key] = (data[key][0]+val[0],val[1],val[2])

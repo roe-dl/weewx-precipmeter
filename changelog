@@ -18,3 +18,6 @@
 * added WeeWX-table-like view to thread database
 * fix bug that prevents start of precipitation timestamps being saved in short interruptions
 * support for different telegram types of Thies LNM
+0.5
+* added rainRate and rain to thread database
+* new observation type rainDur
