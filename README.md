@@ -136,7 +136,7 @@ It is possible to configure more than one device.
   to point to the device subsection of the device you want to get 
   the readings from.
   Default is not to provide `rain` and `rainRate`.
-
+* `rainDur`: device to get `rainDur` from.
 
 ### Connection configuration
 
