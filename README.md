@@ -325,6 +325,10 @@ Those observation type names are prepended by the prefix defined in
 * `MOR`: meteorological optical range (visibility) in precipitation
   (This reading does not report fog induced visibility reduction.)
 * `raw0000` to `raw1023`: raw data (no. 93)
+* `rain`: amount of precipitation during the archive interval
+  (calculated by this extension, not provided by the device)
+* `rainDur`: duration of precipitation during the archive interval
+  (calculated by this extension, not provided by the device)
 * `history`: history of the present weather codes of the last
   hour. This is for debugging purposes. The internal structure of the
   value may change without notice.
@@ -345,6 +349,10 @@ Those observation type names are prepended by the prefix defined in
 * `dBZ`: radar reflectivity factor
 * `MOR`: meteorological optical range (visibility) in precipitation
   (This reading does not report fog induced visibility reduction.)
+* `rain`: amount of precipitation during the archive interval
+  (calculated by this extension, not provided by the device)
+* `rainDur`: duration of precipitation during the archive interval
+  (calculated by this extension, not provided by the device)
 * `history`: history of the present weather codes of the last
   hour. This is for debugging purposes. The internal structure of the
   value may change without notice.
