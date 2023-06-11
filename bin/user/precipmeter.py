@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.5"
+VERSION = "0.6"
 
 SIMULATE_ERRONEOUS_READING = False
 
@@ -740,7 +740,8 @@ class PrecipThread(threading.Thread):
             add = True
         else:
             add = (wawa!=self.presentweather_list[-1][3] or
-                   ww!=self.presentweather_list[-1][2])
+                   ww!=self.presentweather_list[-1][2] or
+                   metar!=self.presentweather_list[-1][5])
         # precipitation or not?
         is_precipitation = is_ww_wawa_precipitation(ww, wawa)
         # Check for values that appear only once. They will be considered
@@ -901,7 +902,9 @@ class PrecipThread(threading.Thread):
         intsum = 0
         dursum = 0
         weather2x = None
+        duration2x = ((None,None),(None,None))
         try:
+            dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
             for idx,ii in enumerate(self.presentweather_list):
                 if __name__ == '__main__':
                     print('idx',idx,'ii',ii)
@@ -916,7 +919,6 @@ class PrecipThread(threading.Thread):
                     wawatype = wawatype1
                     start = ii[0]
                 #
-                #if is_ww_wawa_precipitation(ii[2],ii[3]):
                 if PrecipThread.is_el_precip(ii):
                     precip_duration += duration
                 #
@@ -943,7 +945,6 @@ class PrecipThread(threading.Thread):
                     # the sums.
                     ii[7] = dursum
                     ii[6] = intsum
-                    #if is_ww_wawa_precipitation(ii[2],ii[3]):
                     if PrecipThread.is_el_precip(ii):
                         # Short interruptions of precipitation are not included
                         # in the intensity average.
@@ -956,6 +957,19 @@ class PrecipThread(threading.Thread):
                         dursum += duration
                         intsum += duration*intensity
                         weather2x = ii
+                        # prepare determining "state after precipition"
+                        # weather code
+                        ww2 = WW2_REVERSED.get(ii[2],ii[2])
+                        wawa2 = WAWA2_REVERSED.get(ii[3],ii[3])
+                        try:
+                            metar2 = ii[5].replace('+','').replace('-','')
+                        except AttributeError:
+                            metar2 = ii[5]
+                        dur_dict['ww'][ww2] = dur_dict['ww'].get(ww2,0)+duration
+                        dur_dict['wawa'][wawa2] = dur_dict['wawa'].get(wawa2,0)+duration
+                        dur_dict['metar'][metar2] = dur_dict['metar'].get(metar2,0)+duration
+                        if __name__=='__main__':
+                            print('     ','dur_dict',dur_dict)
                 else:
                     # No precipitation and no short interruption of 
                     # precipitation
@@ -992,7 +1006,45 @@ class PrecipThread(threading.Thread):
                     #       to set start2x, a previous end of precipitation
                     #       may have set start2x.
                     if is2:
+                        # remember timestamp of start
                         start2x = ii[0]
+                        # For wawa: Generally use the highest code reported
+                        # within the last hour. If the duration of the 
+                        # condition with the highest code is much shorter 
+                        # than longest duration in the dict, then use the code
+                        # that lasted longest. Nevertheless, thunderstorms
+                        # and freezing precipitation take precedence over all.
+                        max_wawa2_code = max(dur_dict['wawa'].items(),key=lambda x:x[0],default=(None,None))
+                        max_wawa2_dur = max(dur_dict['wawa'].items(),key=lambda x:x[1],default=(None,None))
+                        if (max_wawa2_code[0]!=max_wawa2_dur[0] and 
+                            max_wawa2_code[0]!=26 and
+                            max_wawa2_code[0]!=25):
+                            if (max_wawa2_code[1]*3)<max_wawa2_dur[1]:
+                                max_wawa2_code = max_wawa2_dur
+                        # For ww: If both snow (22) and rain (21) or drizzle 
+                        # (20) is in the dict, summarize them all together 
+                        # in code 23.
+                        if ((22 in dur_dict['ww'] and 
+                             (21 in dur_dict['ww'] or 20 in dur_dict['ww'])) or 
+                             23 in dur_dict['ww']):
+                            dur_dict['ww'][23] = dur_dict['ww'].get(23,0)+dur_dict.pop(20,0)+dur_dict.pop(21,0)+dur_dict.pop(22,0)
+                        # For ww: Use the code with the highest precedence
+                        # or the longest duration
+                        max_ww_dur = max(dur_dict['ww'].items(),key=lambda x:x[1],default=(None,None))
+                        if 29 in dur_dict['ww']:
+                            # thunderstorm is most important
+                            max_ww_dur = dur_dict['ww'][29]
+                        elif 27 in dur_dict['ww']:
+                            # hail shower is second important
+                            max_ww_dur = dur_dict['ww'][27]
+                        elif 24 in dur_dict['ww']:
+                            # freezing precipitation is third important
+                            max_ww_dur = dur_dict['ww'][24]
+                        duration2x = (max_ww_dur, max_wawa2_code)
+                        if __name__=='__main__':
+                            print('     ','duration2x',duration2x,'dur_dict',dur_dict)
+                    # re-initialize dur_dict
+                    dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
             if start:
                 elapsed = self.presentweather_list[-1][1]-start
                 start = int(start)
@@ -1028,8 +1080,10 @@ class PrecipThread(threading.Thread):
         else:
             # The significant weather  ended within the last hour. That means, the
             # weather code is 20...29.
-            if start2x and start2x>(ts-3600) and weather2x:
-                return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed,precipstart
+            if start2x and start2x>(ts-3600) and duration2x:
+                return duration2x[0][0],duration2x[1][0],start,elapsed,precipstart
+            #if start2x and start2x>(ts-3600) and weather2x:
+            #    return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed,precipstart
             return ww, wawa, start, elapsed, precipstart
     
     def getRecord(self, ot):
@@ -1135,9 +1189,13 @@ class PrecipThread(threading.Thread):
                     # 30s no precipitation, then 90s rain, then again no
                     # precipitation
                     if since<30: self.rain_simulator = 0
-                    if since>120 or since<30: 
+                    if since>150 or since<30: 
                         ww = 0
                         rainrate = 0.0
+                    elif since>120:
+                        ww = 71
+                        rainrate = 0.2
+                        self.rain_simulator += 0.1
                     else:
                         ww = 53
                         rainrate = 0.1
@@ -1167,6 +1225,9 @@ class PrecipThread(threading.Thread):
             if self.model=='thies-lnm':
                 deviceState = [None]*16
                 if reply[0]==chr(2): reply = reply[1:]
+            # OTT Parsivel: initialize special values
+            if self.model.startswith('ott-parsivel'):
+                p_count = None
             # If the remaining telegram string does not contain a field
             # separator any more, there is no field to process any more.
             if self.field_separator not in reply: reply = ''
@@ -1206,6 +1267,29 @@ class PrecipThread(threading.Thread):
                         # (According to the unit J/(m^2h) it is not energy
                         # but power.)
                         val = (float(val)/3600.0,'watt_per_meter_squared','group_rainpower')
+                    elif ii[0]==61 and self.model.startswith('ott-parsivel'):
+                        # list of all particles
+                        # Note: If no. 60 does not precede no. 61, the count
+                        #       of values is unknown to the driver.
+                        if p_count is not None:
+                            reply = val+self.field_separator+reply
+                            val = []
+                            for jj in range(p_count):
+                                x = reply.split(self.field_separator,2)
+                                try:
+                                    val.append((float(x[0]),float(x[1])))
+                                except (LookupError,ValueError,TypeError):
+                                    val.append((None,None))
+                                try:
+                                    reply = x[2]
+                                except LookupError:
+                                    reply = ''
+                                if not reply:
+                                    break
+                            val = (val,None,None)
+                        else:
+                            logerr('unknown length of field 61')
+                            reply = ''
                     elif ii[5]=='string':
                         # string
                         val = (str(val),None,None)
@@ -1256,6 +1340,8 @@ class PrecipThread(threading.Thread):
                         elif ii[0]==2:
                             # rain accumulated
                             p_abs = val[0]
+                        elif ii[0]==60:
+                            p_count = val[0]
                     elif self.model=='thies-lnm':
                         # Thies LNM
                         if 22<=ii[0]<38: deviceState[ii[0]-22] = val[0]

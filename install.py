@@ -10,9 +10,9 @@ def loader():
 class PrecipInstaller(ExtensionInstaller):
     def __init__(self):
         super(SNMPInstaller, self).__init__(
-            version="0.5",
+            version="0.6",
             name='precipmeter',
-            description='',
+            description='WeeWX-Service to fetch and process disdrometer data',
             author="Johanna Roedenbeck",
             author_email="",
             data_services='user.precipmeter.PrecipData',

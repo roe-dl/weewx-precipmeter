@@ -21,3 +21,6 @@
 0.5
 * added rainRate and rain to thread database
 * new observation type rainDur
+0.6
+* changed ww2x/wawa2x algorithm
+* process OTT Parsivel2 field no. 61
