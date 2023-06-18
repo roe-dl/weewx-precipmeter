@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.6"
+VERSION = "0.7"
 
 SIMULATE_ERRONEOUS_READING = False
 
@@ -139,6 +139,7 @@ import weewx
 from weewx.engine import StdService
 import weeutil.weeutil
 import weewx.accum
+import weewx.xtypes
 
 ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
@@ -149,7 +150,14 @@ ACCUM_NOOP = { 'accumulator':'firstlast','adder':'noop','extractor':'noop' }
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
     ii.setdefault('group_wmo_wawa','byte')
+    ii.setdefault('group_wmo_W','byte')
+    ii.setdefault('group_wmo_Wa','byte')
     ii.setdefault('group_rainpower','watt_per_meter_squared')
+    
+weewx.units.agg_group.setdefault('wmo_W1','group_wmo_W')
+weewx.units.agg_group.setdefault('wmo_W2','group_wmo_W')
+weewx.units.agg_group.setdefault('wmo_Wa1','group_wmo_Wa')
+weewx.units.agg_group.setdefault('wmo_Wa2','group_wmo_Wa')
 
 MILE_PER_METER = 1.0/weewx.units.METER_PER_MILE
 weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER)
@@ -506,6 +514,36 @@ WAWA_INTENSITY = [
 WW_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WW_INTENSITY)) for i in k }
 WAWA_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WAWA_INTENSITY)) for i in k }
 
+# past weather VuB2 BUFR page 259
+
+WA_WAWA = [
+    (0,1,2,3,11,12,18,20,21,22,23,24,25,26), # no significant weather
+    (4,5,10,27), # reduced visibility
+    (28,29), # 
+    (30,31,32,33,34,35), # fog
+    (40,41,42), # precipitation
+    (50,51,52,53,54,55,56), # drizzle
+    (43,44,47,48,57,58,60,61,62,63,64,65,66), # rain
+    (45,46,67,68,70,71,72,73,74,75,76,77,78), # snow
+    (80,81,82,83,84,85,86,87,89), # shower or intermittent precipitation
+    (90,91,92,93,94,95,96) # thunderstorm
+]
+WA_WW = [
+    (0,1,2,3,13,14,15,16,18,19,76), # no significant weather
+    (4,5,6,10,11,12,36,37,40), # reduced visibility
+    (7,8,9,30,31,32,33,34,35,38,39), # 
+    (28,41,42,43,44,45,46,47,48,49), # fog
+    (24,), # precipitation
+    (20,50,51,52,53,54,55,56,57), # drizzle
+    (21,58,59,60,61,62,63,64,65,66,67), # rain
+    (22,23,68,69,70,71,72,73,74,75,77,78,79), # snow
+    (25,26,27,80,81,82,83,84,85,86,87,88,89,90), # shower
+    (17,29,91,92,93,94,95,96,97,98,99) # thunderstorm
+]
+
+WA_WAWA_REVERSED = { i:j for j,k in enumerate(WA_WAWA) for i in k }
+WA_WW_REVERSED = { i:j for j,k in enumerate(WA_WW) for i in k }
+
 ##############################################################################
 #    Database schema                                                         #
 ##############################################################################
@@ -560,6 +598,207 @@ def issqltexttype(x):
 def is_ww_wawa_precipitation(ww, wawa):
     """ Does this weather code mean precipitation? """
     return (ww and ww>=50) or (wawa and wawa>=40)
+
+def max_ww(ww_list):
+    """ accumulatre a list of table 4677 weather codes for significance
+    
+        This is done according to the rules of the meteorologists. See
+        DWD VuB2 BUFR 0 20 003 page 44. It is the maximum of the codes 
+        in the list except:
+        - 17 preceeds 20 to 49
+        - 28 preceeds 40
+        Unfortunately those rules are not clear. 
+        
+        The conversion to a set before sorting makes sure, all values
+        in the result are unique.
+        
+        Args:
+            ww_list (iterator of int): list of weather ww codes
+            
+        Returns:
+            int: most significant weather code
+    """
+    if not ww_list: return None
+    ww = sorted(set(ww_list),key=lambda x:-1 if x is None else x)
+    if ww[-1] is not None and ww[-1]<50:
+        # If a code above 49 is in the list, there is no need to check
+        # the special rules.
+        if 17 in ww: 
+            # As code 17 preceeds 28 there is no need to check the
+            # code 28 rule, if 17 is in the list.
+            if 18 not in ww and 19 not in ww:
+                # There is no element that preceeds 17 in the list
+                return 17
+            if ww[-1] not in (18,19):
+                # At this point the rule is not clear. The list
+                # contains codes that preceed 18 and 19. At the
+                # same time 17 preceeds those codes, but not
+                # 18 and 19. 
+                pass
+        elif 28 in ww and 40 in ww:
+            # 28 preceeds 40, but not 29 to 39
+            idx = ww.index(28)
+            # As the list is sorted, 28 cannot be the last element.
+            # So there is at least one more element, and the following
+            # statement cannot fail.
+            if ww[idx+1]==40:
+                # There is no code between 29 and 39 in the list.
+                ww[idx],ww[idx+1] = ww[idx+1],ww[idx]
+    return ww[-1]
+    
+def get_w1w2_from_ww(ww_list):
+    """ get the past weather codes from a list of table 4677 weather codes
+
+        Args:
+            ww_list (iterator of int): list of weather ww codes
+            
+        Returns:
+            int: W past weather code of the present weather
+            int: W1 past weather code
+            int: W2 past weather code
+    """
+    w_list = []
+    last_w = None
+    # loop through the list from now to the past
+    for ww in reversed(ww_list):
+        if ww is None:
+            w = None
+        elif ww==90:
+            w = 8
+        elif ww<30:
+            w = None
+        else:
+            w = ww//10
+        if last_w!=w:
+            w_list.append(w)
+        last_w = w
+    if not w_list: return None,None,None
+    # The present weather ist the first element in the list. We want
+    # the past weather.
+    w = sorted(set(w_list[1:]),key=lambda x:-1 if x is None else x)
+    if not w: return w_list[0],None,None
+    try:
+        w1 = w[-1]
+    except (LookupError,TypeError):
+        w1 = None
+    try:
+        w2 = w[-2]
+    except LookupError:
+        w2 = None
+    return w_list[0], w1, w2
+
+def max_wawa(wawa_list):
+    """ accumulate a list of table 4680 weather codes 
+    
+        Args:
+            wawa_list (iterable): list if wawa weather codes
+            
+        Returns:
+            int: most significant weather code
+    """
+    return max(wawa_list,key=lambda x:-1 if x is None else x,default=None)
+
+def get_wa1wa2_from_wawa_or_ww(ww_list,obsgroup):
+    """ get the past weather codes from a list weather codes
+
+    
+        Args:
+            ww_list (iterator of int): list of weather ww codes
+            
+        Returns:
+            int: W past weather code of the present weather
+            int: W1 past weather code
+            int: W2 past weather code
+    """
+    w_list = []
+    last_w = None
+    # loop through the list from now to the past
+    for ww in reversed(ww_list):
+        if obsgroup=='group_wmo_ww':
+            w = WA_WW_REVERSED.get(ww)
+        else:
+            w = WA_WAWA_REVERSED.get(ww)
+        if last_w!=w:
+            w_list.append(w)
+        last_w = w
+    if not w_list: return None,None,None
+    # The present weather ist the first element in the list. We want
+    # the past weather.
+    w = sorted(set(w_list[1:]),key=lambda x:-1 if x is None else x)
+    if not w: return w_list[0],None,None
+    try:
+        w1 = w[-1]
+    except (LookupError,TypeError):
+        w1 = None
+    try:
+        w2 = w[-2]
+    except LookupError:
+        w2 = None
+    return w_list[0], w1, w2
+
+# In general the maximum of ww or wawa is returned for the present weather
+# of some kind of timespan. But there are some little exceptions. A special
+# function is provided to handle the 'max' aggregation type of ww and wawa
+# for this reason. 
+
+class PrecipXType(weewx.xtypes.XType):
+
+    def get_aggregate(self, obs_type, timespan, agg_type, db_manager, **option_dict):
+        """ special aggregation for group_wmo_ww """
+        obs_group = weewx.units.getUnitGroup(obs_type)
+        if obs_group=='group_wmo_ww':
+            if agg_type=='max':
+                return self.get_ww_max(obs_type,timespan,db_manager,**option_dict)
+            if agg_type in ('wmo_W1','wmo_W2','wmo_Wa1','wmo_Wa2'):
+                return self.get_w(obs_type,timespan,agg_type,db_manager,**option_dict)
+        if obs_group=='group_wmo_wawa':
+            if agg_type=='max':
+                return self.get_wawa_max(obs_type,timespan,db_manager,**option_dict)
+            if agg_type in ('wmo_Wa1','wmo_Wa2'):
+                return self.get_w(obs_type,timespan,agg_type,db_manager,**option_dict)
+        raise weewx.UnknownAggregation("%s.%s" % (obs_type,agg_type))
+        
+    def get_ww_max(self, obs_type, timespan, db_manager, **option_dict):
+        """ get most significant ww code of the timespan """
+        start,stop,data = weewx.xtypes.get_series(obs_type,timespan,db_manager,**option_dict)
+        ww = max_ww(data[0])
+        logdbg('get_ww_max %s' % ww)
+        return weewx.units.ValueTuple(ww,'byte','group_wmo_ww')
+            
+    def get_wawa_max(self, obs_type, timespan, db_manager, **option_dict):
+        """ get most significant wawa code of the timespan """
+        start,stop,data = weewx.xtypes.get_series(obs_type,timespan,db_manager,**option_dict)
+        wawa = max_wawa(data[0])
+        logdbg('get_wawa_max %s' % wawa)
+        return weewx.units.ValueTuple(wawa,'byte','group_wmo_wawa')
+        
+    def get_w(self, obs_type, timespan, agg_type,db_manager, **option_dict):
+        """ get past weather codes """
+        # timespan to get the codes for
+        duration = timespan.stop-timespan.start
+        # get the list of present weather codes of the timespan in question
+        start,stop,data = weewx.xtypes.get_series(obs_type,timespan,db_manager,**option_dict)
+        # get past weather codes from the list of present weather codes
+        if agg_type in ('wmo_W1','wmo_W2'):
+            target_group = 'group_wmo_W'
+            w, w1, w2 = get_w1w2_from_ww(data[0])
+        elif agg_type in ('wmo_Wa1','wmo_Wa2'):
+            target_group = 'group_wmo_Wa'
+            w, w1, w2 = get_wa1wa2_from_wawa_or_ww(data[0],data[2])
+        else:
+            raise weewx.UnknownAggregation("%s.%s" % (obs_type,agg_type))
+        # return result
+        if duration<=3600 and w1==w:
+            # If the timespan is up to one hour only, get no past weather
+            # code that is the same as present weather
+            return weewx.units.ValueTuple(None,'byte',target_group)
+        if agg_type.endswith('1'):
+            # W1 or Wa1
+            return weewx.units.ValueTuple(w1,'byte',target_group)
+        else:
+            # W2 or Wa2
+            return weewx.units.ValueTuple(w2,'byte',target_group)
+
 
 class PrecipThread(threading.Thread):
 
@@ -1535,6 +1774,11 @@ class PrecipData(StdService):
         self.accum_end_ts = None
         self.lightning_strike_ts = 0
         self.temp5cm_C = None
+        # Register XType extension
+        # Note: Prepend it to overwrite `max` for groups `group_wmo_ww` and
+        #       `group_wmo_wawa`.
+        self.xtype = PrecipXType()
+        weewx.xtypes.xtypes.insert(0,self.xtype)
 
     def _create_thread(self, thread_name, thread_dict):
         """ Create device connection thread. """
@@ -1753,6 +1997,8 @@ class PrecipData(StdService):
                 del self.threads[ii]
             except:
                 pass
+        # remove XType extension
+        weewx.xtypes.xtypes.remove(self.xtype)
         
     def _process_data(self, thread_name):
         """ Get and process data from the threads. """
@@ -1840,12 +2086,14 @@ class PrecipData(StdService):
         
             called from special_accumulators()
             
-            obsunit  - obs[1] from self.threads[thread_name]['accum']
-            obsgroup - obs[2] from self.threads[thread_name]['accum']
-            accum    - value of the accumulator
-                       self.threads[thread_name]['accum'][obs]
+            Args:
+                obsunit  : obs[1] from self.threads[thread_name]['accum']
+                obsgroup : obs[2] from self.threads[thread_name]['accum']
+                accum    : value of the accumulator
+                           self.threads[thread_name]['accum'][obs]
             
-            returns the accumulated value
+            Returns: 
+                the accumulated value
         """
         # For 'group_data' always the last reading is returned.
         if obsgroup=='group_data':
@@ -1882,7 +2130,11 @@ class PrecipData(StdService):
                     break
                 except TypeError:
                     pass
-            return max(_accum)
+            # return the most significant weather code out of the list
+            if obsgroup=='group_wmo_ww':
+                return max_ww(_accum)
+            else:
+                return max_wawa(_accum)
         # no accumulator for this observation type
         return None
     
@@ -2068,6 +2320,7 @@ class PrecipData(StdService):
         return data
 
 class PrecipArchive(StdService):
+    """ Store PrecipMeter data to a separate database """
 
     def __init__(self, engine, config_dict):
         super(PrecipArchive,self).__init__(engine, config_dict)
@@ -2230,6 +2483,16 @@ if __name__ == '__main__':
                 sv.new_archive_record(event)
                 print('=== ARCHIVE ================================================')
                 print(event.record)
+                if 'ottHistory' in event.record:
+                    wawa_list = []
+                    ww_list =[]
+                    for ii in event.record['ottHistory']:
+                        ww_list.append(ii[2])
+                        wawa_list.append(ii[3])
+                    print('max(ww)',max_ww(ww_list))
+                    print('W1W2',get_w1w2_from_ww(ww_list))
+                    print('max(wawa)',max_wawa(wawa_list))
+                    print('Wa1Wa2',get_wa1wa2_from_wawa_or_ww(wawa_list,'group_wmo_wawa'))
                 print('============================================================')
                 #break
         except Exception as e:

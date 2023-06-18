@@ -286,6 +286,9 @@ before and after. This is because the propability of error ist about
   precipitation period or `None` if actually no precipitation takes place.
 * `visibility`: visibility, derived from `MOR`
 
+To get the most significant weather of some timespan, use the `max` 
+aggregation type for `ww` and `wawa`, for example `$day.ww.max`
+
 To convert the present weather code into a symbol or icon
 look for the `$presentweather` tag provided by
 [weewx-DWD](https://github.com/roe-dl/weewx-DWD).
@@ -367,6 +370,32 @@ WMO code table 4677 ww | WMO code table 4680 w<sub>a</sub>w<sub>a</sub>
 
 These symbols and appropriate description texts can be displayed by the
 `$presentweather` tag.
+
+## Aggregation types
+
+To describe the weather during a past period of time, the WMO defined
+2 code tables, that are much simpler and shorter than ww and 
+w<sub>a</sub>w<sub>a</sub>. Therefore, if you want to aggregate the present
+weather you need to convert the the codes vom table 4677 to
+4561 or 4680 to 4531, respectively. That is, what the special
+aggregation types provided by this WeeWX extension do.
+
+* `wmo_W1`: get the most significant weather during the given timespan
+  as table 4561 code
+* `wmo_W2`: get the second significant weather during the given timespan
+  as table 4561 code
+* `wmo_Wa1`: get the most significant weather during the given timespan
+  as table 4531 code
+* `wmo_Wa2`: get the second significant weather during the given timespan
+  as table 4531 code
+* `max`: get the most significant weather during the given timespan
+  using the original code table. This is generally the maximum of the
+  the weather codes within the timespan, but the WMO defined some
+  exception, that are observed by this special version of the
+  `max` aggregation type. It is used for observation types of the
+  groups `group_wmo_ww` and `group_wmo_wawa`.
+
+Example: `$day(data_binding='precip_binding').ww.wmo_W1`
 
 ## Usage in skins
 
