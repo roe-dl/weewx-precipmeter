@@ -21,9 +21,11 @@
 0.5
 * added rainRate and rain to thread database
 * new observation type rainDur
-0.6
+0.6 11jun23
 * changed ww2x/wawa2x algorithm
 * process OTT Parsivel2 field no. 61
 0.7
 * special `max` algorithm for `ww` and `wawa`
 * aggregation type `wmo_W1`, `wmo_W2`, `wmo_Wa1` and `wmo_Wa2`
+* frost indicator according to German Weather Service DWD
+* handle firmware error of Ott Parsivel2 that erroneously produces ww62

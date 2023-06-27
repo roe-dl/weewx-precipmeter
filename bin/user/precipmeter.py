@@ -1531,15 +1531,21 @@ class PrecipThread(threading.Thread):
                             reply = ''
                     elif ii[5]=='string':
                         # string
-                        val = (str(val),None,None)
+                        val = weewx.units.ValueTuple(str(val),None,None)
                     elif ii[7]=='INTEGER':
                         # counter, wawa, ww
-                        val = (int(val),ii[5],ii[6])
+                        val = weewx.units.ValueTuple(int(val),ii[5],ii[6])
                     elif ii[7]=='REAL':
                         # float
-                        val = (float(val),ii[5],ii[6])
+                        val = weewx.units.ValueTuple(float(val),ii[5],ii[6])
                     else:
                         print('error')
+                    # correct firmware error
+                    if (self.model.startswith('ott-parsivel') and
+                        ii[0]==4 and
+                        val[0]==62):
+                        val = weewx.units.ValueTuple(61,ii[5],ii[6])
+                    # include reading in record
                     if ii[4]:
                         # ii[4] already includes prefix here.
                         record[ii[4]] = val
@@ -1768,12 +1774,16 @@ class PrecipData(StdService):
                 self.bind(weewx.END_ARCHIVE_PERIOD, self.end_archive_period)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
             self.obs_t5cm = site_dict.get('temp5cm')
+            self.obs_t2m = site_dict.get('temp2m','outTemp')
+            self.obs_s5cm = site_dict.get('soil5cm','soilTemp1')
         # Initialize variables for the special accumulators
         self.old_accum = dict()
         self.accum_start_ts = None
         self.accum_end_ts = None
         self.lightning_strike_ts = 0
         self.temp5cm_C = None
+        self.temp2m_C = None
+        self.soil5cm_C = None
         # Register XType extension
         # Note: Prepend it to overwrite `max` for groups `group_wmo_ww` and
         #       `group_wmo_wawa`.
@@ -2171,6 +2181,54 @@ class PrecipData(StdService):
                 except LookupError:
                     last_val = None
                 thread_accum[obs] = [last_val]
+    
+    def frostindicator(self):
+        """ frost indicator according to DWD VuB 2 BUFR page 257
+        
+            This rule is published by the German Weather Service. I hope,
+            other weather services use the same rule.
+        
+            air temp 2m | air temp 5cm | soil temp 5cm | frost indicator
+            ------------|--------------|---------------|----------------
+                <0°C    |    <0°C      |     any       |     yes
+                any     |     any      |    <-0,5°C    |     yes
+                other   |    other     |     other     |     no
+              failure   |    >=0°C     |   failure     |   failure
+               >=0°C    |   failure    |   failure     |   failure
+              failure   |   failure    |   failure     |   failure
+              
+             Returns:
+                 boolean: frost indicator
+        """
+        try:
+            if not self.obs_t5cm:
+                # no observation type for air temperature 5cm configured
+                # That does not comply with the rules of the German Weather Service,
+                # but we need some reasonable result.
+                if self.temp2m_C and self.temp2m_C<0.0:
+                    return True
+            # air temperature 2m and 5cm is below 0°C
+            if (self.temp2m_C and self.temp2m_C<0.0 and
+                self.temp5cm_C and self.temp5cm_C<0.0):
+                return True
+            # soil temperature 5cm is below -0.5°C
+            if (self.soil5cm_C and self.soil5cm_C<-0.5):
+                return True
+            # failure indicators
+            if (not self.temp2m_C and not self.soil5cm_C and
+                self.temp5cm_C and self.temp5cm_C>=0.0):
+                return None
+            if (self.temp2m_C and self.temp2m_C>=0.0 and
+                not self.temp5cm_C and not self.soil5cm_C):
+                return None
+            if (not self.temp2m_C and not self.temp5cm_C and 
+                not self.soil5cm_C):
+                return None
+            # no frost
+            return False
+        except (TypeError,ValueError,ArithmeticError):
+            # unexpected error is considered failure, too
+            return None
 
     def presentweather(self, obstype, record):
         """ Postprocess ww and wawa. 
@@ -2198,14 +2256,14 @@ class PrecipData(StdService):
                 elif val[0]<17:
                     record[obstype] = (17,val[1],val[2])
             # freezing rain or drizzle
-            if self.temp5cm_C is not None and self.temp5cm_C<0:
-                if val[0] in (50,51,58):
+            if self.frostindicator():
+                if val[0] in (50,51):
                     record[obstype] = (56,val[1],val[2])
-                elif val[0] in (52,53,54,55,59):
+                elif val[0] in (52,53,54,55):
                     record[obstype] = (57,val[1],val[2])
-                elif val[0] in (60,61):
+                elif val[0] in (60,61,58):
                     record[obstype] = (66,val[1],val[2])
-                elif val[0] in (62,63,64,65):
+                elif val[0] in (62,63,64,65,59):
                     record[obstype] = (67,val[1],val[2])
                 elif val[0] in (20,21):
                     record[obstype] = (24,val[1],val[2])
@@ -2219,9 +2277,13 @@ class PrecipData(StdService):
                 else:
                     record[obstype] = (90,val[1],val[2])
             # freezing rain or drizzle
-            if self.temp5cm_C is not None and self.temp5cm_C<0:
+            if self.frostindicator():
                 if val[0] in (51,52,53,61,62,63):
                     record[obstype] = (val[0]+3,val[1],val[2])
+                elif val[0]==57:
+                    record[obstype] = (64,val[1],val[2])
+                elif val[0]==58:
+                    record[obstype] = (66,val[1],val[2])
                 elif val[0] in (21,22,23):
                     record[obstype] = (25,val[1],val[2])
     
@@ -2293,11 +2355,21 @@ class PrecipData(StdService):
             self.lightning_strike_ts = event.record.get('dateTime',time.time())
         else:
             self.lightning_strike_ts = 0
-        # Bodentemperatur
+        # air temperature 5cm
         try:
             self.temp5cm_C = weewx.units.convert(event.record[self.obs_t5cm],'degree_C')[0]
         except (LookupError,ValueError,TypeError,ArithmeticError):
             self.temp5cm_C = None
+        # air temperature 2m
+        try:
+            self.temp2m_C = weewx.units.convert(event.record[self.obs_t2m],'degree_C')[0]
+        except (LookupError,ValueError,TypeError,ArithmeticError):
+            self.temp2m_C = None
+        # soil temperature 5cm
+        try:
+            self.soil5cm_C = weewx.units.convert(event.record[self.obs_s5cm],'degree_C')[0]
+        except (LookupError,ValueError,TypeError,ArithmeticError):
+            self.soil5cm_C = None
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
