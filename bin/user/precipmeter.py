@@ -381,16 +381,16 @@ THIES = {
 # "state after something" weather codes
 
 WW2 = {
-            20: (50,51,52,53,54,55,58,59),
-            21: (60,61,62,63,64,65),
+            20: (50,51,52,53,54,55),
+            21: (60,61,62,63,64,65,58,59),
             22: (70,71,72,73,74,75),
             23: (68,69),
             24: (56,57,66,67),
             25: (80,81,82),
-            26: (85,86),
+            26: (83,84,85,86),
             27: (87,88,89,90),
             28: (41,42,43,44,45,46,47,48,49),
-            29: (95,96,97,98,99)
+            29: (17,95,96,97,98,99)
 }
 WAWA2 = {
             20: (30,31,32,33,34,35),
@@ -544,6 +544,126 @@ WA_WW = [
 WA_WAWA_REVERSED = { i:j for j,k in enumerate(WA_WAWA) for i in k }
 WA_WW_REVERSED = { i:j for j,k in enumerate(WA_WW) for i in k }
 
+WW_AWEKAS = {
+   0: 0,
+   1: 0,
+   2: 0,
+   3: 0,
+  45: 7, # fog
+  80: 8, # rain showers
+  81: 9, # heavy rain showers
+  82: 9, # heavy rain showers
+  58:10, # light rain
+  59:11, # rain
+  61:10, # light rain
+  63:11, # rain
+  65:12, # heavy rain
+  79:13, # light snow
+  71:13, # light snow
+  73:14, # snow
+  75:24, # heavy snow
+  85:15, # light snow showers
+  86:16, # snow showers
+  68:17, # sleet
+  69:17, # sleet
+  83:17, # sleet
+  84:17, # sleet
+  68:17, # sleet
+  69:17, # sleet
+  87:18, # hail
+  88:18, # hail
+  89:18, # hail
+  90:18, # hail
+  95:19, # thunderstorm
+  96:19, # thunderstorm
+  97:19, # thunderstorm
+  98:19, # thunderstorm
+  99:19, # thunderstorm
+  18:20, # storm
+  56:21, # freezing rain
+  57:21, # freezing rain
+  66:21, # freezing rain
+  67:21, # freezing rain
+  51:23, # drizzle
+  53:23, # drizzle
+  55:23, # drizzle
+}
+WAWA_AWEKAS = {
+   0: 0,
+  33: 7, # fog
+  80: 8, # rain showers
+  81: 8, # rain showers
+  82: 8, # rain showers
+  83: 9, # heavy rain showers
+  84: 9, # heavy rain showers
+  57:10, # light rain
+  58:11, # rain
+  60:10, # light rain
+  61:10, # light rain
+  62:11, # rain
+  63:12, # heavy rain
+  70:13, # light snow
+  71:13, # light snow
+  72:14, # snow
+  73:24, # heavy snow
+  85:15, # light snow showers
+  86:16, # snow showers
+  87:25, # heavy snow showers
+  67:17, # sleet
+  68:17, # sleet
+  89:18, # hail
+  90:19, # thunderstorm
+  91:19, # thunderstorm
+  92:19, # thunderstorm
+  93:19, # thunderstorm
+  94:19, # thunderstorm
+  95:19, # thunderstorm
+  96:19, # thunderstorm
+  18:20, # storm
+  99:20, # storm
+  47:21, # freezing rain
+  48:21, # freezing rain
+  54:21, # freezing rain
+  55:21, # freezing rain
+  56:21, # freezing rain
+  64:21, # freezing rain
+  65:21, # freezing rain
+  66:21, # freezing rain
+  50:23, # drizzle
+  51:23, # drizzle
+  52:23, # drizzle
+  53:23, # drizzle
+}
+# german description, English description, severity, icon
+AWEKAS = [
+  ('Warnung aufgehoben','clear warning',0,''),
+  ('klar','clear',1,'clear-day.png'),
+  ('heiter','sunny sky',2,'mostly-clear-day.png'),
+  ('leicht bewölkt','partly cloudy',3,'partly-cloudy-day.png'),
+  ('bewölkt','cloudy',4,''),
+  ('stark bewölkt','heavy cloudy',5,'mostly-cloudy-day.png'),
+  ('bedeckt','overcast sky',6,'cloudy.png'),
+  ('Nebel','fog',7,'fog.png'),
+  ('Regenschauer','rain showers',15,'rain.png'),
+  ('schwere Regenschauer','heavy rain showers',16,'rain.png'),
+  ('leichter Regen','light rain',9,'rain.png'),
+  ('Regen','rain',10,'rain.png'),
+  ('starker Regen','heavy rain',11,'rain.png'),
+  ('leichter Schneefall','light snow',12,'snow.png'),
+  ('Schneefall','snow',13,'snow.png'),
+  ('leichte Schneeschauer','light snow showers',17,'snow.png'),
+  ('Schneeschauer','snow showers',18,'snow.png'),
+  ('Schneeregen','sleet',20,'sleet.png'),
+  ('Hagel','hail',21,'hail.png'),
+  ('Gewitter','thunderstorm',26,'thunderstorm.png'),
+  ('Sturm','storm',22,'wind.png'),
+  ('gefrierender Regen','freezing rain',25,'freezingrain.png'),
+  ('Warnung','warning',24,''),
+  ('Sprühregen','drizzle',8,'drizzle.png'),
+  ('starker Schneefall','heavy snow',14,'snow.png'),
+  ('starke Schneeschauer','heavy snow showers',19,'snow.png')
+]
+
 ##############################################################################
 #    Database schema                                                         #
 ##############################################################################
@@ -558,7 +678,8 @@ table = [
     ('wawa',                 'INTEGER'),
     ('presentweatherStart',  'INTEGER'),
     ('presentweatherTime',   'REAL'),
-    ('precipitationStart',   'INTEGER')
+    ('precipitationStart',   'INTEGER'),
+    ('frostIndicator',       'INTEGER')
 ]
 
 def day_summaries(table):
@@ -816,6 +937,7 @@ class PrecipThread(threading.Thread):
         self.set_visibility = conf_dict.get('visibility',name)==name
         self.set_precipitation = conf_dict.get('precipitation','-----')==name
         self.set_rainDur = conf_dict.get('rainDur','-----')==name
+        self.set_awekas = name in weeutil.weeutil.option_as_list(conf_dict.get('AWEKAS',[]))
         self.prefix = conf_dict.get('prefix')
         
         self.data_queue = data_queue
@@ -1324,6 +1446,18 @@ class PrecipThread(threading.Thread):
             #if start2x and start2x>(ts-3600) and weather2x:
             #    return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed,precipstart
             return ww, wawa, start, elapsed, precipstart
+            
+    def awekaspresentweather(self, awekas, record):
+        """ set the AWEKASpresentweather observation type 
+        
+            Args:
+                awekas (int): new AWEKAS present weather code
+                record (dict): LOOP record
+                
+            Returns:
+                adds element `AWEKASpresentweather` 
+        """
+        record['AWEKASpresentweather'] = (awekas,'byte','group_data')
     
     def getRecord(self, ot):
     
@@ -1622,6 +1756,12 @@ class PrecipThread(threading.Thread):
                 'second',
                 'group_deltatime')
 
+        if record and self.set_awekas:
+            if ww is not None:
+                self.awekaspresentweather(WW_AWEKAS.get(ww),record)
+            elif wawa is not None:
+                self.awekaspresentweather(WAWA_AWEKAS.get(wawa),record)
+
         if record and self.set_weathercodes:
             try:
                 ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa, metar, p_abs, p_rate)
@@ -1754,11 +1894,15 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('precipitationStart','group_time')
         weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
         weewx.units.obs_group_dict.setdefault('visibility','group_distance')
+        weewx.units.obs_group_dict.setdefault('frostIndicator','group_boolean')
+        weewx.units.obs_group_dict.setdefault('AWEKASpresentweather','group_data')
         weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('precipitationStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('frostIndicator',ACCUM_MAX)
+        weewx.accum.accum_dict.setdefault('AWEKASpresentweather',ACCUM_LAST)
         if 'PrecipMeter' in config_dict:
             ct = 0
             for name in config_dict['PrecipMeter'].sections:
@@ -1773,9 +1917,15 @@ class PrecipData(StdService):
                 self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
                 self.bind(weewx.END_ARCHIVE_PERIOD, self.end_archive_period)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
-            self.obs_t5cm = site_dict.get('temp5cm')
-            self.obs_t2m = site_dict.get('temp2m','outTemp')
-            self.obs_s5cm = site_dict.get('soil5cm','soilTemp1')
+        # observation types to use in postprocessing the ww and wawa
+        # readings
+        self.obs_t5cm = site_dict.get('temp5cm')
+        self.obs_t2m = site_dict.get('temp2m','outTemp')
+        self.obs_s5cm = site_dict.get('soil5cm','soilTemp1')
+        self.obs_windSpeed = site_dict.get('windSpeed','windSpeed')
+        self.obs_windSpeed10 = site_dict.get('windSpeed10','windSpeed10')
+        self.obs_windGust = site_dict.get('windGust','windGust')
+        self.freezing_detection_source = site_dict.get('freezingPrecipDetectionSource','software')
         # Initialize variables for the special accumulators
         self.old_accum = dict()
         self.accum_start_ts = None
@@ -1784,6 +1934,10 @@ class PrecipData(StdService):
         self.temp5cm_C = None
         self.temp2m_C = None
         self.soil5cm_C = None
+        self.windGust = None
+        self.windGust_ts = 0
+        self.is_freezing = None
+        self.last_awekas = None
         # Register XType extension
         # Note: Prepend it to overwrite `max` for groups `group_wmo_ww` and
         #       `group_wmo_wawa`.
@@ -2026,6 +2180,14 @@ class PrecipData(StdService):
                 # no more packets available so far
                 break
             else:
+                try:
+                    self.presentweather('ww',data1)
+                except (LookupError,ValueError,TypeError,ArithmeticError):
+                    pass
+                try:
+                    self.presentweather('wawa',data1)
+                except (LookupError,ValueError,TypeError,ArithmeticError):
+                    pass
                 # accumulate readings that arrived since the last LOOP
                 # packet
                 for key,val in data1[1].items():
@@ -2069,11 +2231,14 @@ class PrecipData(StdService):
                     data[key] = (data[key][0][0]/data[key][0][1],data[key][1],data[key][2])
             data['count'] = (ct,'count','group_count')
             #print(data)
+            #print('\n\n\n',data.get('AWEKASpresentweather'),'\n\n\n')
             return data
         return None
     
     def special_accumulator_add(self, thread_name, key, val):
         """ Add value to special accumulator. """
+        # ignore None values
+        if val[0] is None: return
         # present weather
         if val[2] in ('group_wmo_ww','group_wmo_wawa'):
             obs = (key,val[1],val[2])
@@ -2081,7 +2246,7 @@ class PrecipData(StdService):
                 self.threads[thread_name]['accum'][obs] = [None]
             self.threads[thread_name]['accum'][obs].append(val[0])
         # history of the present weather
-        if val[2]=='group_data':
+        if val[2]=='group_data' and key.endswith('History'):
             obs = (key,val[1],val[2])
             self.threads[thread_name]['accum'][obs] = val[0]
         
@@ -2246,50 +2411,83 @@ class PrecipData(StdService):
         if self.lightning_strike_ts<(ts-600):
             self.lightning_strike_ts = 0
         val = record[obstype]
+        val_val = val[0]
         if obstype=='ww' and val[2]=='group_wmo_ww':
+            # Note:
+            # - 17 preceeds 20 to 49
+            # - 28 preceeds 40
+            # otherwise the higher preceeds the lower
+
             # thunderstorm
             if self.lightning_strike_ts:
-                if val[0]==79:
-                    record[obstype] = (96,val[1],val[2])
-                elif val[0]>=50 and val[0]<=90:
-                    record[obstype] = (95,val[1],val[2])
-                elif val[0]<17:
-                    record[obstype] = (17,val[1],val[2])
+                if val_val==79:
+                    val_val = 96
+                elif val_val>=50 and val_val<=90:
+                    val_val = 95
+                elif val_val<17 or 20<=val_val<=49:
+                    val_val = 17
             # freezing rain or drizzle
-            if self.frostindicator():
-                if val[0] in (50,51):
-                    record[obstype] = (56,val[1],val[2])
-                elif val[0] in (52,53,54,55):
-                    record[obstype] = (57,val[1],val[2])
-                elif val[0] in (60,61,58):
-                    record[obstype] = (66,val[1],val[2])
-                elif val[0] in (62,63,64,65,59):
-                    record[obstype] = (67,val[1],val[2])
-                elif val[0] in (20,21):
-                    record[obstype] = (24,val[1],val[2])
+            if self.is_freezing:
+                if val_val in (50,51):
+                    val_val = 56
+                elif val_val in (52,53,54,55):
+                    val_val = 57
+                elif val_val in (60,61,58):
+                    val_val = 66
+                elif val_val in (62,63,64,65,59):
+                    val_val = 67
+                elif val_val in (20,21):
+                    val_val = 24
+            # wind gust
+            if val_val<18 and self.windGust:
+                val_val = 18
+            # new value
+            record[obstype] = (val_val,val[1],val[2])
         elif obstype=='wawa' and val[2]=='group_wmo_wawa':
             # thunderstorm
             if self.lightning_strike_ts:
-                if val[0]==89:
-                    record[obstype] = (93,val[1],val[2])
-                elif val[0]>=40 and val[0]<90:
-                    record[obstype] = (92,val[1],val[2])
+                if val_val==89:
+                    val_val = 93
+                elif val_val>=40 and val_val<90:
+                    val_val = 92
                 else:
-                    record[obstype] = (90,val[1],val[2])
+                    val_val = 90
             # freezing rain or drizzle
-            if self.frostindicator():
-                if val[0] in (51,52,53,61,62,63):
-                    record[obstype] = (val[0]+3,val[1],val[2])
-                elif val[0]==57:
-                    record[obstype] = (64,val[1],val[2])
-                elif val[0]==58:
-                    record[obstype] = (66,val[1],val[2])
-                elif val[0] in (21,22,23):
-                    record[obstype] = (25,val[1],val[2])
+            if self.is_freezing:
+                if val_val in (51,52,53,61,62,63):
+                    val_val += 3
+                elif val_val==57:
+                    val_val = 64
+                elif val_val==58:
+                    val_val = 66
+                elif val_val in (21,22,23):
+                    val_val = 25
+            # wind gust
+            if val_val<18 and self.windGust:
+                val_val = 18
+            # new value
+            record[obstype] = (val_val,val[1],val[2])
+            
+    def awekaspresentweather(self):
+        """ set AWEKASpresentweather observation type
+        
+            Note: This function applies to event.packet. So use the raw
+                  value. Do not use a ValueTuple.
+        """
+        if self.lightning_strike_ts:
+            awekas = 19
+        elif self.is_freezing:
+            awekas = 21
+        else:
+            awekas = 0
+        return awekas
+        
     
     def new_loop_packet(self, event):
         """ Process LOOP event. """
         timestamp = event.packet.get('dateTime',time.time())
+        # AWEKAS
+        awekas = self.awekaspresentweather()
         for thread_name in self.threads:
             # if the LOOP packet belongs to a new archive interval, calculate
             # the accumulated values
@@ -2299,12 +2497,19 @@ class PrecipData(StdService):
             reply = self._process_data(thread_name)
             # if new data is available process them and update the LOOP packet
             if reply:
+                # There may be more than one source for `AWEKASpresentweather`.
+                # If so, one may provide precipiation, another one cloud
+                # coverage. If there is already a higher value in the
+                # packet, discard the value from this thread.
                 try:
-                    self.presentweather('ww',reply)
-                except (LookupError,ValueError,TypeError,ArithmeticError):
-                    pass
-                try:
-                    self.presentweather('wawa',reply)
+                    if 'AWEKASpresentweather' in reply:
+                        new_awekas = reply.pop('AWEKASpresentweather')[0]
+                        awekas1 = awekas
+                        awekas2 = new_awekas
+                        if awekas1 is None: awekas1 = 0
+                        if awekas2 is None: awekas2 = 0
+                        if AWEKAS[awekas2][2]>AWEKAS[awekas1][2]:
+                            awekas = new_awekas
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
                 data = self._to_weewx(thread_name,reply,event.packet['usUnits'])
@@ -2319,13 +2524,55 @@ class PrecipData(StdService):
                 event.packet.update(data)
                 # count records received from the device
                 self.threads[thread_name]['reply_count'] += reply.get('count',(0,None,None))[0]
+        # AWEKAS
+        if awekas!=self.last_awekas:
+            event.packet['AWEKASpresentweather'] = awekas
+            self.last_awekas = awekas
         # if the LOOP packet belongs to a new archive interval, initialize
         # the new archive timespan
         if not self.accum_end_ts or timestamp>self.accum_end_ts:
             self.new_special_accumulator(timestamp)
-        # thunderstorm
+        # remember thunderstorm
         if 'lightning_strike_count' in event.packet and event.packet['lightning_strike_count']>0:
             self.lightning_strike_ts = event.packet.get('dateTime',time.time())
+        # remember wind gust
+        # Rule to detect wind gusts strong enough to set ww/wawa to 18
+        # according to the BUFR specification found in VuB 2 BUFR page 258:
+        # If the 1 minute average of wind speed is >=10.5 m/s and the
+        # 1 minute average of the wind speed is by at least 8.0 m/s higher
+        # than the 10 minutes average of wind speed, then this is a wind
+        # gust worth ww/wawa 18.
+        # As there is an observation type `windGust` this observation type
+        # is used instead of the 1 minute average as the 1 minute average
+        # is not available in WeeWX.
+        if self.obs_windGust in event.packet:
+            try:
+                # get actual wind gust speed reading
+                windGust = weewx.units.convert(weewx.units.as_value_tuple(event.packet,self.obs_windGust),'meter_per_second')[0]
+                # Check if there is the 10 minutes average observation type
+                # `windSpeed10` is available. If not use `windSpeed` instead.
+                if self.obs_windSpeed10 in event.packet and event.packet[self.obs_windSpeed10] is not None:
+                    windSpeed = self.obs_windSpeed10
+                else:
+                    windSpeed = self.obs_windSpeed
+                # get wind speed reading
+                windSpeed = weewx.units.convert(weewx.units.as_value_tuple(event.packet,windSpeed),'meter_per_second')[0]
+                # current time
+                windGust_ts = event.packet.get('dateTime',time.time())
+                #
+                #logdbg('wind %s %s %s' % (windGust,windSpeed,windGust_ts))
+                # apply rule
+                if (windSpeed and windGust and 
+                    windGust>=10.5 and 
+                    (windGust-windSpeed)>=8.0):
+                    # wind gust condition met
+                    self.windGust = True
+                    self.windGust_ts = windGust_ts
+                elif windGust_ts>(self.windGust_ts+300):
+                    # no wind gust condition for more than 5 minutes
+                    self.windGust = False
+            except (TypeError,ValueError,ArithmeticError,LookupError):
+                pass
     
     def end_archive_period(self, event):
         """ Process end of archive period event. 
@@ -2357,19 +2604,38 @@ class PrecipData(StdService):
             self.lightning_strike_ts = 0
         # air temperature 5cm
         try:
-            self.temp5cm_C = weewx.units.convert(event.record[self.obs_t5cm],'degree_C')[0]
+            self.temp5cm_C = weewx.units.convert(weewx.units.as_value_tuple(event.record,self.obs_t5cm),'degree_C')[0]
         except (LookupError,ValueError,TypeError,ArithmeticError):
             self.temp5cm_C = None
         # air temperature 2m
         try:
-            self.temp2m_C = weewx.units.convert(event.record[self.obs_t2m],'degree_C')[0]
+            self.temp2m_C = weewx.units.convert(weewx.units.as_value_tuple(event.record,self.obs_t2m),'degree_C')[0]
         except (LookupError,ValueError,TypeError,ArithmeticError):
             self.temp2m_C = None
         # soil temperature 5cm
         try:
-            self.soil5cm_C = weewx.units.convert(event.record[self.obs_s5cm],'degree_C')[0]
+            self.soil5cm_C = weewx.units.convert(weewx.units.as_value_tuple(event.record,self.obs_s5cm),'degree_C')[0]
         except (LookupError,ValueError,TypeError,ArithmeticError):
             self.soil5cm_C = None
+        # frost indicator
+        if self.freezing_detection_source.lower()=='software':
+            # calculated by this extension
+            self.is_freezing = self.frostindicator()
+            event.record['frostIndicator'] = weeutil.weeutil.to_int(self.is_freezing)
+        elif self.freezing_detection_source.lower()=='hardware':
+            # provided by some other source
+            self.is_freezing = event.record.get('frostIndicator')
+        elif self.freezing_detection_source.lower()=='none':
+            # freezing precipitation detection not performed
+            self.is_freezing = None
+        else:
+            # from some device handled by this extension, set within
+            # new_loop_packet() while handling the appropriate thread,
+            # nothing to do here
+            pass
+        # debugging output
+        if self.debug>1:
+            logdbg('temp5cm %s°C, temp2m %s°C, soil5cm %s°C isfreezing %s' % (self.temp5cm_C,self.temp2m_C,self.soil5cm_C,self.is_freezing))
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
@@ -2546,7 +2812,7 @@ if __name__ == '__main__':
                     if len(event.packet)>1:
                         print('=== LOOP ===================================================')
                         print(event.packet)
-                        print(type(event.packet['ottHistory']))
+                        print(type(event.packet.get('ottHistory')))
                         print('============================================================')
                     time.sleep(10)
                 sv.end_archive_period(dict())

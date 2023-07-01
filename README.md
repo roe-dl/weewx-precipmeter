@@ -137,6 +137,21 @@ It is possible to configure more than one device.
   the readings from.
   Default is not to provide `rain` and `rainRate`.
 * `rainDur`: device to get `rainDur` from.
+* `freezingPrecipDetectionSource`: source of the indicator value
+  used to decide about freezing precipitation. Possible 
+  values are:
+  * `software`: The value is calculated out of temperature readings
+    within this extension. This is the default.
+  * `hardware`: The value is provided by some sensor or device by
+    setting the observation type `frostIndicator`. If reading the
+    device requires some extra WeeWX extension, that extension must be
+    included in the `data_services` list of `weewx.conf` before
+    `user.precipmeter.PrecipData`.
+  * a subsection of the `PrecipMeter` section that describes the device
+    to get the information from.
+  * `none`: Freezing precipitation detection shall not be performed.
+* `AWEKAS`: list of subsections to retrieve data for the `AWEKASpresentweather`
+  observation type from
 
 ### Connection configuration
 
@@ -150,6 +165,19 @@ It is possible to configure more than one device.
 ### Authentication configuration
 
 Actually none.
+
+### Postprocessing configuration
+
+* `temp2m`: observation type of air temperature 2m above ground (default
+  `outTemp`)
+* `temp5cm`: observation type of air temperature 5cm above ground (default
+  no observation available)
+* `soil5cm`: observatoin type of soil temperature 5cm below ground
+  (default `soilTemp1`)
+* `windSpeed`: observation type of wind speed (default `windSpeed`)
+* `windSpeed10`: observation type of 10 minutes average of wind speed
+  (default `windSpeed10`)
+* `windGust`: observation type of wind gust (default `windGust`)
 
 ### Device configuration
 
@@ -231,6 +259,8 @@ before and after. This is because the propability of error ist about
     data_binding = precip_binding
     weathercodes = Parsivel # or Thies
     visibility = Parsivel # or Thies
+    temp5cm = extraTemp1
+    freezingPrecipDetectionSource = software
     [[Parsivel]]
         enable = True # or False
         model = Ott-Parsivel2
@@ -284,7 +314,14 @@ before and after. This is because the propability of error ist about
 * `presentweatherTime`: time elapsed since last change of the present weather
 * `precipitationStart`: timestamp of the beginning of the present
   precipitation period or `None` if actually no precipitation takes place.
+* `frostIndicator`: indicator if the conditions for freezing rain or
+  freezing drizzle are met.
 * `visibility`: visibility, derived from `MOR`
+* `AWEKASpresentweather`: present weather code according to the
+  specification of AWEKAS. This observation type is provided if and only if
+  the reading changes. This is due to the fact that AWEKAS interprets
+  that observation type as some kind of alert to be sent once and then
+  persisting until a new message arrives. 
 
 To get the most significant weather of some timespan, use the `max` 
 aggregation type for `ww` and `wawa`, for example `$day.ww.max`
@@ -636,6 +673,14 @@ In this example you also learn how to use the `ValueTuple` and
 Example how that table could look like:
 
 ![present weather history table](https://github.com/roe-dl/weewx-precipmeter/blob/4a49dba94a97fefda6c9ef25757b0df51cb44008/Wetterzusta%CC%88nde-Tabelle.png)
+
+## Algorithms
+
+See wiki.
+
+* [How different data intervals are handled within this extension](https://github.com/roe-dl/weewx-precipmeter/wiki/How-different-data-intervals-are-handled-within-this-extension)
+* [How to determine "state after some weather condition" codes (20...29)?](https://github.com/roe-dl/weewx-precipmeter/wiki/How-to-determine-%22state-after-some-weather-condition%22-codes-(20...29)%3F)
+* [How to detect freezing rain and freezing drizzle](https://github.com/roe-dl/weewx-precipmeter/wiki/How-to-detect-freezing-rain-and-freezing-drizzle)
 
 ## How to set up Ott Parsivel<sup>2</sup>?
 

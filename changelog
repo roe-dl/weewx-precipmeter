@@ -28,4 +28,6 @@
 * special `max` algorithm for `ww` and `wawa`
 * aggregation type `wmo_W1`, `wmo_W2`, `wmo_Wa1` and `wmo_Wa2`
 * frost indicator according to German Weather Service DWD
+* observation type `frostIndicator`
 * handle firmware error of Ott Parsivel2 that erroneously produces ww62
+* AWEKAS support
