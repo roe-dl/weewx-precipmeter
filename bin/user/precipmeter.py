@@ -1937,7 +1937,10 @@ class PrecipData(StdService):
         self.windGust = None
         self.windGust_ts = 0
         self.is_freezing = None
+        # Initialize variables for AWEKAS support
         self.last_awekas = None
+        self.current_awekas = None
+        self.old_awekas = None
         # Register XType extension
         # Note: Prepend it to overwrite `max` for groups `group_wmo_ww` and
         #       `group_wmo_wawa`.
@@ -2467,27 +2470,11 @@ class PrecipData(StdService):
                 val_val = 18
             # new value
             record[obstype] = (val_val,val[1],val[2])
-            
-    def awekaspresentweather(self):
-        """ set AWEKASpresentweather observation type
-        
-            Note: This function applies to event.packet. So use the raw
-                  value. Do not use a ValueTuple.
-        """
-        if self.lightning_strike_ts:
-            awekas = 19
-        elif self.is_freezing:
-            awekas = 21
-        else:
-            awekas = 0
-        return awekas
-        
+    
     
     def new_loop_packet(self, event):
         """ Process LOOP event. """
         timestamp = event.packet.get('dateTime',time.time())
-        # AWEKAS
-        awekas = self.awekaspresentweather()
         for thread_name in self.threads:
             # if the LOOP packet belongs to a new archive interval, calculate
             # the accumulated values
@@ -2504,14 +2491,18 @@ class PrecipData(StdService):
                 try:
                     if 'AWEKASpresentweather' in reply:
                         new_awekas = reply.pop('AWEKASpresentweather')[0]
-                        awekas1 = awekas
-                        awekas2 = new_awekas
-                        if awekas1 is None: awekas1 = 0
-                        if awekas2 is None: awekas2 = 0
-                        if AWEKAS[awekas2][2]>AWEKAS[awekas1][2]:
-                            awekas = new_awekas
-                except (LookupError,ValueError,TypeError,ArithmeticError):
+                        if self.is_freezing and new_awekas in (8,9,10,11,12,23):
+                            # freezing precipitation
+                            new_awekas = 21
+                        awekas1 = AWEKAS[self.current_awekas][2] if self.current_awekas is not None else -1
+                        awekas2 = AWEKAS[new_awekas][2] if new_awekas is not None else -1
+                        if new_awekas:
+                            loginf('AWEKAS vgl %s %s %s %s' % (self.current_awekas,new_awekas,awekas1,awekas2))
+                        if awekas2>awekas1:
+                            self.current_awekas = new_awekas
+                except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                     pass
+                    logerr('AWEKAS %s %s' % (e.__class__.__name__,e))
                 data = self._to_weewx(thread_name,reply,event.packet['usUnits'])
                 # log 
                 if self.debug>=3: 
@@ -2524,10 +2515,6 @@ class PrecipData(StdService):
                 event.packet.update(data)
                 # count records received from the device
                 self.threads[thread_name]['reply_count'] += reply.get('count',(0,None,None))[0]
-        # AWEKAS
-        if awekas!=self.last_awekas:
-            event.packet['AWEKASpresentweather'] = awekas
-            self.last_awekas = awekas
         # if the LOOP packet belongs to a new archive interval, initialize
         # the new archive timespan
         if not self.accum_end_ts or timestamp>self.accum_end_ts:
@@ -2573,6 +2560,9 @@ class PrecipData(StdService):
                     self.windGust = False
             except (TypeError,ValueError,ArithmeticError,LookupError):
                 pass
+        # AWEKAS
+        if self.lightning_strike_ts:
+            self.current_awekas = 19
     
     def end_archive_period(self, event):
         """ Process end of archive period event. 
@@ -2581,7 +2571,8 @@ class PrecipData(StdService):
             processed, but before the first LOOP packet of the new
             archive interval
         """
-        pass
+        self.old_awekas = self.current_awekas
+        self.current_awekas = None
 
     def new_archive_record(self, event):
         """ Process new archive record event. """
@@ -2636,6 +2627,11 @@ class PrecipData(StdService):
         # debugging output
         if self.debug>1:
             logdbg('temp5cm %s°C, temp2m %s°C, soil5cm %s°C isfreezing %s' % (self.temp5cm_C,self.temp2m_C,self.soil5cm_C,self.is_freezing))
+        # AWEKAS
+        if self.old_awekas!=self.last_awekas:
+            event.record['AWEKASpresentweather'] = self.old_awekas
+            self.last_awekas = self.old_awekas
+            loginf('new AWEKAS code %s' % self.old_awekas)
 
     def _to_weewx(self, thread_name, reply, usUnits):
         data = dict()
