@@ -944,6 +944,9 @@ class PrecipThread(threading.Thread):
         self.query_interval = query_interval
         self.device_interval = 60
         self.last_data_ts = time.time()+120
+        self.last_awekas = None
+        self.last_awekas_ct = 10
+        self.sent_awekas = None
 
         self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
         self.db_conn = None
@@ -1450,6 +1453,10 @@ class PrecipThread(threading.Thread):
     def awekaspresentweather(self, awekas, record):
         """ set the AWEKASpresentweather observation type 
         
+            To remove single different readings, send a precipitation code
+            after at least 3 times precipitation codes. The same applies
+            to non-precipitation codes.
+        
             Args:
                 awekas (int): new AWEKAS present weather code
                 record (dict): LOOP record
@@ -1457,7 +1464,19 @@ class PrecipThread(threading.Thread):
             Returns:
                 adds element `AWEKASpresentweather` 
         """
-        record['AWEKASpresentweather'] = (awekas,'byte','group_data')
+        if (awekas is not None and self.last_awekas is not None and
+            ((awekas>=8 and self.last_awekas<8) or
+            (awekas<8 and self.last_awekas>=8))):
+            # was no precipitation and is now precipitation or
+            # was precipitation and is now no precipitation
+            self.last_awekas_ct = 0
+        else:
+            # preciptation state did not change
+            self.last_awekas_ct += 1
+            if self.last_awekas_ct>2:
+                self.sent_awekas = awekas
+        record['AWEKASpresentweather'] = (self.sent_awekas,'byte','group_data')
+        self.last_awekas = awekas
     
     def getRecord(self, ot):
     
