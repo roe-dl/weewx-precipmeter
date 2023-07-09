@@ -15,6 +15,8 @@ Please note: Actually the TCP connection is tested only.
 In general you need:
 * a disdrometer or present weather sensor like Ott-Hydromet
   Parsivel<sup>2</sup> or Thies LNM
+  (And there are people, who made disdrometers themselves as a 
+  [DIY project](https://dk0te.dhbw-ravensburg.de/cgi-bin/navi?m=LD).)
 * a converter from RS485 to whatever your computer understands
   (RS485-to-ethernet converter or RS485-to-USB converter)
 * a 24V DC power supply (I recommend using a model including an accumulator
@@ -190,6 +192,10 @@ Actually none.
   to define the observation types measured by the device.)
 * `field_separator`: data field separator. Optional. Default is `;`.
 * `record_separator`: data record separator. Optional. Default is `\r\n`
+* `error_limit`: How long a precipitation must last at least to be
+  considered real precipitation and not erroneous reading?
+  In seconds. (Please note: Disdrometers sometimes create false-positive
+  results.)
 
 See [WeeWX Customization Guide](http://www.weewx.com/docs/customizing.htm#units)
 for a list of predefined units and unit groups.
@@ -321,7 +327,9 @@ before and after. This is because the propability of error ist about
   specification of AWEKAS. This observation type is provided if and only if
   the reading changes. This is due to the fact that AWEKAS interprets
   that observation type as some kind of alert to be sent once and then
-  persisting until a new message arrives. 
+  persisting until a new message arrives. See wiki page
+  [AWEKAS](https://github.com/roe-dl/weewx-precipmeter/wiki/AWEKAS)
+  for additional information and instructions how to use it.
 
 To get the most significant weather of some timespan, use the `max` 
 aggregation type for `ww` and `wawa`, for example `$day.ww.max`

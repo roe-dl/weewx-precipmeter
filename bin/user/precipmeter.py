@@ -22,6 +22,7 @@
 VERSION = "0.7"
 
 SIMULATE_ERRONEOUS_READING = False
+TEST_LOG_THREAD = False
 
 """
 
@@ -143,6 +144,7 @@ import weewx.xtypes
 
 ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
+ACCUM_HISTORY = ACCUM_STRING
 ACCUM_LAST = { 'extractor':'last' }
 ACCUM_MAX = { 'extractor':'max' }
 ACCUM_NOOP = { 'accumulator':'firstlast','adder':'noop','extractor':'noop' }
@@ -636,32 +638,41 @@ WAWA_AWEKAS = {
 }
 # german description, English description, severity, icon
 AWEKAS = [
-  ('Warnung aufgehoben','clear warning',0,''),
-  ('klar','clear',1,'clear-day.png'),
-  ('heiter','sunny sky',2,'mostly-clear-day.png'),
-  ('leicht bewölkt','partly cloudy',3,'partly-cloudy-day.png'),
-  ('bewölkt','cloudy',4,''),
-  ('stark bewölkt','heavy cloudy',5,'mostly-cloudy-day.png'),
-  ('bedeckt','overcast sky',6,'cloudy.png'),
-  ('Nebel','fog',7,'fog.png'),
-  ('Regenschauer','rain showers',15,'rain.png'),
-  ('schwere Regenschauer','heavy rain showers',16,'rain.png'),
-  ('leichter Regen','light rain',9,'rain.png'),
-  ('Regen','rain',10,'rain.png'),
-  ('starker Regen','heavy rain',11,'rain.png'),
-  ('leichter Schneefall','light snow',12,'snow.png'),
-  ('Schneefall','snow',13,'snow.png'),
-  ('leichte Schneeschauer','light snow showers',17,'snow.png'),
-  ('Schneeschauer','snow showers',18,'snow.png'),
-  ('Schneeregen','sleet',20,'sleet.png'),
-  ('Hagel','hail',21,'hail.png'),
-  ('Gewitter','thunderstorm',26,'thunderstorm.png'),
-  ('Sturm','storm',22,'wind.png'),
-  ('gefrierender Regen','freezing rain',25,'freezingrain.png'),
-  ('Warnung','warning',24,''),
-  ('Sprühregen','drizzle',8,'drizzle.png'),
-  ('starker Schneefall','heavy snow',14,'snow.png'),
-  ('starke Schneeschauer','heavy snow showers',19,'snow.png')
+    # 0 clear warning
+    ('Warnung aufgehoben','clear warning',0,'clear-warning.svg'),
+    # 1...6 cloud covering
+    ('klar','clear',1,'clear-day.png'),
+    ('heiter','sunny sky',2,'mostly-clear-day.png'),
+    ('leicht bewölkt','partly cloudy',3,'partly-cloudy-day.png'),
+    ('bewölkt','cloudy',4,'partly-cloudy-day.png'),
+    ('stark bewölkt','heavy cloudy',5,'mostly-cloudy-day.png'),
+    ('bedeckt','overcast sky',6,'cloudy.png'),
+    # 7 fog
+    ('Nebel','fog',7,'fog.png'),
+    # 8... precipitation
+    ('Regenschauer','rain showers',15,'rain.png'),
+    ('schwere Regenschauer','heavy rain showers',16,'rain.png'),
+    ('leichter Regen','light rain',9,'rain.png'),
+    ('Regen','rain',10,'rain.png'),
+    ('starker Regen','heavy rain',11,'rain.png'),
+    ('leichter Schneefall','light snow',12,'snow.png'),
+    ('Schneefall','snow',13,'snow.png'),
+    ('leichte Schneeschauer','light snow showers',17,'snow.png'),
+    ('Schneeschauer','snow showers',18,'snow.png'),
+    ('Schneeregen','sleet',20,'sleet.png'),
+    ('Hagel','hail',24,'hail.png'),
+    # 19 thunderstorm
+    ('Gewitter','thunderstorm',26,'thunderstorm.png'),
+    # 20 storm
+    ('Sturm','storm',27,'wind.png'),
+    # 21 freezing precipitation
+    ('gefrierender Regen','freezing rain',25,'freezingrain.png'),
+    # 22 warning
+    ('Warnung','warning',28,''),
+    # 23...25 again precipitation
+    ('Sprühregen','drizzle',8,'drizzle.png'),
+    ('starker Schneefall','heavy snow',14,'snow.png'),
+    ('starke Schneeschauer','heavy snow showers',19,'snow.png')
 ]
 
 ##############################################################################
@@ -721,7 +732,7 @@ def is_ww_wawa_precipitation(ww, wawa):
     return (ww and ww>=50) or (wawa and wawa>=40)
 
 def max_ww(ww_list):
-    """ accumulatre a list of table 4677 weather codes for significance
+    """ accumulate a list of table 4677 weather codes for significance
     
         This is done according to the rules of the meteorologists. See
         DWD VuB2 BUFR 0 20 003 page 44. It is the maximum of the codes 
@@ -939,6 +950,9 @@ class PrecipThread(threading.Thread):
         self.set_rainDur = conf_dict.get('rainDur','-----')==name
         self.set_awekas = name in weeutil.weeutil.option_as_list(conf_dict.get('AWEKAS',[]))
         self.prefix = conf_dict.get('prefix')
+        # Precipitation or non-precipitation conditions lasting
+        # less than self.error_limit are considered erroneous.
+        self.error_limit = conf_dict.get('error_limit',60) # seconds
         
         self.data_queue = data_queue
         self.query_interval = query_interval
@@ -955,6 +969,7 @@ class PrecipThread(threading.Thread):
         # by the contents of the json file saved at thread stop
         self.presentweather_list = []
         self.next_presentweather_error = 0
+        self.presentweather_lock = threading.Lock()
         try:
             with open(self.db_fn+'.json','rt') as file:
                 self.presentweather_list = json.load(file)
@@ -1083,11 +1098,24 @@ class PrecipThread(threading.Thread):
     def is_el_precip(el):
         return is_ww_wawa_precipitation(el[2],el[3])
     
-    def presentweather(self, ts, ww, wawa, metar, p_abs, p_rate):
-        """ Postprocessing of ww and wawa.
+    def update_presentweather_list(self, ts, ww, wawa, metar, p_abs, p_rate):
+        """ Maintain self.presentweather_list
             
-            enhances ww and wawa and calculates `presentweatherStart`,
-            `presentweatherTime`, and `precipitationStart`
+            * Update the last element if the weather condition did not change.
+            * Add a new element if the weather condition changed.
+            * Check for erroneous readings and remove them from the list.
+            * Remove outdated elements from the list.
+            
+            Args:
+                ts (int): timestamp
+                ww (int): new ww code
+                wawa (int): new wawa code
+                metar (str): new METAR code
+                p_abs 
+                p_rate
+                
+            Returns:
+                No return value, but updated self.presentweather_list
         """
         # A value of None is possible. Otherwise the value must be of
         # type int (or str in case of metar).
@@ -1115,7 +1143,64 @@ class PrecipThread(threading.Thread):
             try:
                 last_el = self.presentweather_list[-1]
                 prev_el = self.presentweather_list[-2]
-                if ((last_el[1]-last_el[0])<=self.device_interval and
+                if (PrecipThread.is_el_precip(last_el) and
+                    not is_precipitation and
+                    (wawa is not None or ww is not None) and
+                    (last_el[1]-last_el[4])<self.error_limit):
+                    # There was precipitation and now is not, and the
+                    # precipitation lasted less than self.error_limit
+                    # This is considered erroneous. We remove all
+                    # the readings since the last non-precipitation
+                    # reading.
+                    if self.prefix:
+                        # send negative rain duration value to
+                        # compensate for the previously reported
+                        # rain duration, now considered erroneous
+                        rec = {
+                            self.prefix+'RainDur':(
+                                last_el[4]-last_el[1],
+                                'second',
+                                'group_deltatime'
+                            )
+                        }
+                        if self.set_rainDur:
+                            rec['rainDur'] = rec[self.prefix+'RainDur']
+                        self.put_data(ts,rec)
+                        #print('negative rainDur')
+                    precipstart = last_el[4]
+                    while (len(self.presentweather_list)>0 and
+                           PrecipThread.is_el_precip(last_el) and
+                           last_el[4]==precipstart):
+                        loginf("thread '%s': discarded ww/wawa/w'w' %s/%s/%s lasting %s seconds" % (self.name,last_el[2],last_el[3],last_el[5],last_el[1]-last_el[0]))
+                        # remove the last element
+                        del self.presentweather_list[-1]
+                        # If there are more elements in the list,
+                        # point last_el to the new last element and
+                        # remove that element from the database,
+                        # as this is the new active element, and
+                        # the active element is in memory only.
+                        if len(self.presentweather_list)>0:
+                            last_el = self.presentweather_list[-1]
+                            try:
+                                cur = self.db_conn.cursor()
+                                cur.execute('DELETE FROM precipitation WHERE `start`=?',tuple((last_el[0],)))
+                                self.db_conn.commit()
+                                cur.close()
+                            except sqlite3.Error as e:
+                                logerr("thread '%s': SQLITE DELETE %s %s" % (self.name,e.__class__.__name__,e))
+                            except LookupError:
+                                pass
+                        else:
+                            last_el = None
+                    # If there is still an element in the list
+                    # (which should always be here), check if the
+                    # actual weather code is different from
+                    # the now last one of the list.
+                    if last_el:
+                        add = (wawa!=last_el[3] or
+                               ww!=last_el[2] or
+                               metar!=last_el[5])
+                elif ((last_el[1]-last_el[0])<=max(self.device_interval,self.error_limit) and
                     (wawa is not None or ww is not None)):
                     # The last value appears only once.
                     if ((PrecipThread.is_el_precip(prev_el) and is_precipitation and not PrecipThread.is_el_precip(last_el)) or
@@ -1125,7 +1210,7 @@ class PrecipThread(threading.Thread):
                         # reading erroneous and remove it. The same applies
                         # for one single reading of no precipitation between
                         # readings of precipitation.
-                        loginf("thread %s: discarded ww/wawa %s/%s between %s/%s and %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
+                        loginf("thread '%s': discarded ww/wawa %s/%s between %s/%s and %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
                         add = False
                         if ww==prev_el[2] and wawa==prev_el[3]:
                             # It is the same weather code as that before 
@@ -1253,8 +1338,34 @@ class PrecipThread(threading.Thread):
         if self.presentweather_list[0][1]<(ts-3600):
             self.presentweather_list.pop(0)
         # Now we have a list of the weather codes of the last hour.
-        if __name__ == '__main__':
+        if __name__ == '__main__' and TEST_LOG_THREAD:
             print('presentweather_list',self.presentweather_list)
+        return precipstart
+    
+    def presentweather(self, ts, ww, wawa):
+        """ Postprocessing of ww and wawa.
+            
+            enhances ww and wawa and calculates `presentweatherStart`,
+            `presentweatherTime`, and `precipitationStart`
+            
+            If the function is called from new_archive_record there may
+            be weather conditions in the list which start after the
+            archive period ended. Therefore the parameter ts is
+            required.
+            
+            Args:
+                ts (int): timestamp of the end of the timespan to process
+                ww (int): actual ww code or most significant code of
+                    the archive period
+                wawa (int): actual wawa code or most significant code of
+                    the archive period
+                
+            Returns:
+                ww (int): postprocessed ww code
+                wawa (int): postprocessed wawa code
+                start (int): `presentweatherStart`
+                elapsed (int): `presentweatherTime`
+        """
         # start timestamp and duration of the current weather condition
         # (We do not care about the intensity of precipitation here.)
         # observation types `presentweatherStart` and `presentweatherTime`
@@ -1270,7 +1381,9 @@ class PrecipThread(threading.Thread):
         try:
             dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
             for idx,ii in enumerate(self.presentweather_list):
-                if __name__ == '__main__':
+                if ts and ii[0]>ts:
+                    break
+                if __name__ == '__main__' and TEST_LOG_THREAD:
                     print('idx',idx,'ii',ii)
                 duration = ii[1]-ii[0]
                 # get weather type 
@@ -1332,7 +1445,7 @@ class PrecipThread(threading.Thread):
                         dur_dict['ww'][ww2] = dur_dict['ww'].get(ww2,0)+duration
                         dur_dict['wawa'][wawa2] = dur_dict['wawa'].get(wawa2,0)+duration
                         dur_dict['metar'][metar2] = dur_dict['metar'].get(metar2,0)+duration
-                        if __name__=='__main__':
+                        if __name__=='__main__' and TEST_LOG_THREAD:
                             print('     ','dur_dict',dur_dict)
                 else:
                     # No precipitation and no short interruption of 
@@ -1405,7 +1518,7 @@ class PrecipThread(threading.Thread):
                             # freezing precipitation is third important
                             max_ww_dur = dur_dict['ww'][24]
                         duration2x = (max_ww_dur, max_wawa2_code)
-                        if __name__=='__main__':
+                        if __name__=='__main__' and TEST_LOG_THREAD:
                             print('     ','duration2x',duration2x,'dur_dict',dur_dict)
                     # re-initialize dur_dict
                     dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
@@ -1420,35 +1533,35 @@ class PrecipThread(threading.Thread):
             start2x = None
         if len(self.presentweather_list)<2:
             # The weather did not change during the last hour.
-            return ww, wawa, start, elapsed, precipstart
+            return ww, wawa, start, elapsed
         if (len(self.presentweather_list)==2 and 
             not self.presentweather_list[0][2] and 
             not self.presentweather_list[0][3]):
             # No significant weather at the beginning of the last hour,
             # then one significant weather condition.
-            return ww, wawa, start, elapsed, precipstart
+            return ww, wawa, start, elapsed
         """
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
         if len(wawa_dict)<=1 and len(ww_dict)<=1:
-            return ww, wawa, start, elapsed, precipstart
+            return ww, wawa, start, elapsed
         """
         # Is there actually some significant weather?
         if wawa or ww:
             # weather detected
             # TODO: detect showers
-            return ww, wawa, start, elapsed, precipstart
+            return ww, wawa, start, elapsed
         elif elapsed>3600:
             # more than one hour no significant weather
-            return ww, wawa, start, elapsed, precipstart
+            return ww, wawa, start, elapsed
         else:
             # The significant weather  ended within the last hour. That means, the
             # weather code is 20...29.
             if start2x and start2x>(ts-3600) and duration2x:
-                return duration2x[0][0],duration2x[1][0],start,elapsed,precipstart
+                return duration2x[0][0],duration2x[1][0],start,elapsed
             #if start2x and start2x>(ts-3600) and weather2x:
-            #    return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed,precipstart
-            return ww, wawa, start, elapsed, precipstart
+            #    return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed
+            return ww, wawa, start, elapsed
             
     def awekaspresentweather(self, awekas, record):
         """ set the AWEKASpresentweather observation type 
@@ -1480,7 +1593,7 @@ class PrecipThread(threading.Thread):
     
     def getRecord(self, ot):
     
-        if __name__ == '__main__':
+        if __name__ == '__main__' and TEST_LOG_THREAD:
             print()
             print('-----',self.name,'-----',ot,'-----',self.connection_type,'-----')
 
@@ -1565,7 +1678,7 @@ class PrecipThread(threading.Thread):
             else:
                 temp = int(round(25+2*math.sin((time.time()%30)/30*math.pi),0))
                 since = int(time.time()-self.start_ts)
-                if __name__ == '__main__':
+                if __name__ == '__main__' and TEST_LOG_THREAD:
                     print('///////////////////////',since,'///////////////////////')
                 if SIMULATE_ERRONEOUS_READING:
                     # erroneous reading
@@ -1603,7 +1716,7 @@ class PrecipThread(threading.Thread):
         if ((self.field_separator not in reply) or 
             (self.record_separator not in reply)):
             return
-        ts = time.time()
+        ts = int(time.time())
         ww = None
         wawa = None
         metar = None
@@ -1762,50 +1875,83 @@ class PrecipThread(threading.Thread):
             logerr("thread '%s': unknown model '%s'" % (self.name,self.model))
             self.shutDown()
 
+        # If WeeWX requested to shutdown stop further processing and
+        # return immediately.
         if not self.running: 
             loginf("thread '%s': self.running==False getRecord() after telegram_list loop" % self.name)
             return
-            
+        
+        # update self.presentweather_list and set `...History` and `precipitationStart`
+        if self.presentweather_lock.acquire():
+            try:
+                pstart = self.update_presentweather_list(ts, ww, wawa, metar, p_abs, p_rate)
+                if record:
+                    if self.prefix:
+                        # history of present weather codes of the last hour
+                        record[self.prefix+'History'] = (self.presentweather_list,'byte','group_data')
+                    if self.set_weathercodes:
+                        record['precipitationStart'] = (pstart,'unix_epoch','group_time')
+            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                # throttle the error logging frequency to once in 5 minutes
+                if self.next_presentweather_error<time.time():
+                    logerr("thread '%s': update present weather list %s %s" % (self.name,e.__class__.__name__,e))
+                    if __name__ == '__main__':
+                        self.next_presentweather_error = 0
+                    else:
+                        self.next_presentweather_error = time.time()+300
+            finally:
+                self.presentweather_lock.release()
+
+        # `...RainDur`
         if record and self.prefix:
-            # history of present weather codes of the last hour
-            record[self.prefix+'History'] = (self.presentweather_list,'byte','group_data')
             # precipitation duration
             record[self.prefix+'RainDur'] = (
                 self.device_interval if is_ww_wawa_precipitation(ww,wawa) else 0.0,
                 'second',
                 'group_deltatime')
 
+        # AWEKAS support
         if record and self.set_awekas:
             if ww is not None:
                 self.awekaspresentweather(WW_AWEKAS.get(ww),record)
             elif wawa is not None:
                 self.awekaspresentweather(WAWA_AWEKAS.get(wawa),record)
 
+        # Postprocessing
         if record and self.set_weathercodes:
             try:
-                ww, wawa, since, elapsed, pstart = self.presentweather(ts, ww, wawa, metar, p_abs, p_rate)
-                if ww is not None: 
-                    record['ww'] = (ww,'byte','group_wmo_ww')
-                if wawa is not None: 
-                    record['wawa'] = (wawa,'byte','group_wmo_wawa')
-                if since: 
-                    record['presentweatherStart'] = (since,'unix_epoch','group_time')
-                if elapsed is not None: 
-                    record['presentweatherTime'] = (elapsed,'second','group_deltatime')
-                record['precipitationStart'] = (pstart,'unix_epoch','group_time')
+                # Postprocess readings and maintain thread database
+                if self.presentweather_lock.acquire():
+                    try:
+                        ww, wawa, since, elapsed = self.presentweather(ts, ww, wawa)
+                    finally:
+                        self.presentweather_lock.release()
+                    if ww is not None: 
+                        record['ww'] = (ww,'byte','group_wmo_ww')
+                    if wawa is not None: 
+                        record['wawa'] = (wawa,'byte','group_wmo_wawa')
+                    if since: 
+                        record['presentweatherStart'] = (since,'unix_epoch','group_time')
+                    if elapsed is not None: 
+                        record['presentweatherTime'] = (elapsed,'second','group_deltatime')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                # throttle the error logging frequency to once in 5 minutes
                 if self.next_presentweather_error<time.time():
                     logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
                     if __name__ == '__main__':
                         self.next_presentweather_error = 0
                     else:
                         self.next_presentweather_error = time.time()+300
+
+        # `visibity`
         if record and self.set_visibility and self.prefix:
             try:
                 if (self.prefix+'MOR') in record: 
                     record['visibility'] = record[self.prefix+'MOR']
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 pass
+
+        # `rain` and `rainRate`
         if record and self.set_precipitation and self.prefix:
             # Generally the readings of `rain` and `rainRate` are not 
             # provided by this extension but by the driver that is set
@@ -1821,6 +1967,8 @@ class PrecipThread(threading.Thread):
                     record['rainRate'] = record[self.prefix+'RainRate']
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
+        
+        # `rainDur`
         if record and self.set_rainDur and self.prefix:
             try:
                 if (self.prefix+'RainDur') in record:
@@ -1830,17 +1978,17 @@ class PrecipThread(threading.Thread):
         
         # send record to queue for processing in the main thread
         
-        if __name__ == '__main__':
+        if __name__ == '__main__' and TEST_LOG_THREAD:
             print(record)
         if ot=='loop':
-            self.put_data(record)
+            self.put_data(ts,record)
             self.last_data_ts = time.time()+600
         
-    def put_data(self, x):
+    def put_data(self, ts, x):
         if x:
             if self.data_queue:
                 try:
-                    self.data_queue.put((self.name,x),
+                    self.data_queue.put((self.name,x,ts),
                                 block=False)
                 except queue.Full:
                     # If the queue is full (which should not happen),
@@ -1848,6 +1996,62 @@ class PrecipThread(threading.Thread):
                     pass
                 except (KeyError,ValueError,LookupError,ArithmeticError) as e:
                     logerr("thread '%s': %s" % (self.name,e))
+                    
+    def get_archive_record(self, timespan):
+        """ get an archive record for timespan 
+        
+            Some readings included in the LOOP packets may be detected as
+            erroneous and removed later. So process the actual list of 
+            weather conditions. Do not accumulate the readings out of the 
+            LOOP packets.
+            
+            Args:
+                timespan (TimeSpan): archive period
+                
+            Returns:
+                dict: dict of readings 
+        """
+        record = dict()
+        ww_list = []
+        wawa_list = []
+        ww = None
+        wawa = None
+        since = None
+        elapsed = None
+        pstart = None
+        if self.presentweather_lock.acquire():
+            try:
+                # get the ww and wawa codes during the archive period
+                for el in self.presentweather_list:
+                    if el[1]>timespan[0] and el[0]<=timespan[1]:
+                        pstart = el[4]
+                        if el[2] is not None:
+                            ww_list.append(el[2])
+                        if el[3] is not None:
+                            wawa_list.append(el[3])
+                # get the postprocessed values if necessary
+                if self.set_weathercodes:
+                    ww, wawa, since, elapsed = self.presentweather(timespan[1],0,0)
+            finally:
+                self.presentweather_lock.release()
+        # set the thread readings
+        if self.prefix:
+            record[self.prefix+'Ww'] = (max_ww(ww_list),'byte','group_wmo_ww')
+            record[self.prefix+'Wawa'] = (max_wawa(wawa_list),'byte','group_wmo_wawa')
+        # set the values out of the postprocessing
+        if self.set_weathercodes:
+            if ww is not None: 
+                ww_list.append(ww)
+                record['ww'] = (max_ww(ww_list),'byte','group_wmo_ww')
+            if wawa is not None:
+                wawa_list.append(wawa) 
+                record['wawa'] = (max_wawa(wawa_list),'byte','group_wmo_wawa')
+            if since: 
+                record['presentweatherStart'] = (since,'unix_epoch','group_time')
+            if elapsed is not None: 
+                record['presentweatherTime'] = (elapsed,'second','group_deltatime')
+            record['precipitationStart'] = (pstart,'unix_epoch','group_time')
+        return record
 
     def run(self):
         loginf("thread '%s' starting" % self.name)
@@ -2115,7 +2319,7 @@ class PrecipData(StdService):
             obstype = thread_dict['prefix']+'History'
             obsgroup = 'group_data'
             weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
-            _accum[obstype] = ACCUM_NOOP
+            _accum[obstype] = ACCUM_HISTORY
         # observation types that are readings from the device
         for ii in thread_dict['loop']:
             obstype,obsunit,obsgroup,obsdatatype = ii[4:]
@@ -2203,11 +2407,11 @@ class PrecipData(StdService):
                 break
             else:
                 try:
-                    self.presentweather('ww',data1)
+                    self.presentweather(data[2],'ww',data1[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
                 try:
-                    self.presentweather('wawa',data1)
+                    self.presentweather(data[2],'wawa',data1[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
                 # accumulate readings that arrived since the last LOOP
@@ -2215,7 +2419,9 @@ class PrecipData(StdService):
                 for key,val in data1[1].items():
                     if key in data:
                         # further occurances of the observation type
-                        if ((self.threads[thread_name].get('prefix') and
+                        if key=='presentweatherTime':
+                            data[key] = val
+                        elif ((self.threads[thread_name].get('prefix') and
                             key==(self.threads[thread_name]['prefix']+'Rain')) or
                             val[2] in SUM_GROUPS):
                             # calculate rain amount during interval
@@ -2261,12 +2467,6 @@ class PrecipData(StdService):
         """ Add value to special accumulator. """
         # ignore None values
         if val[0] is None: return
-        # present weather
-        if val[2] in ('group_wmo_ww','group_wmo_wawa'):
-            obs = (key,val[1],val[2])
-            if obs not in self.threads[thread_name]['accum']:
-                self.threads[thread_name]['accum'][obs] = [None]
-            self.threads[thread_name]['accum'][obs].append(val[0])
         # history of the present weather
         if val[2]=='group_data' and key.endswith('History'):
             obs = (key,val[1],val[2])
@@ -2279,7 +2479,7 @@ class PrecipData(StdService):
         self.accum_end_ts = self.accum_start_ts + self.archive_interval
 
     def special_accumulator(self, obsunit, obsgroup, accum):
-        """ Accumulator for ww, wawa and group_data. 
+        """ Accumulator for group_data. 
         
             called from special_accumulators()
             
@@ -2300,38 +2500,6 @@ class PrecipData(StdService):
         # the actual archive interval. So return None.
         if len(accum)==1:
             return None
-        # accumulator for ww and wawa
-        # The propability of error is about 3% according to the specification.
-        # Therefore erroneous readings are quite frequent. For this reason
-        # one single value of precipitation between values of no precipitation
-        # is considered erroneous. The same applies for one single value
-        # of no precipitation between values of precipitation.
-        if obsgroup in ('group_wmo_ww','group_wmo_wawa'):
-            min_precip = 40 if obsgroup=='group_wmo_wawa' else 50
-            _accum = []
-            for idx,val1 in enumerate(accum):
-                try:
-                    val2 = accum[idx+1]
-                    val3 = accum[idx+2]
-                    if val1 is None:
-                        v1 = True
-                    else:
-                        v1 = val1>=min_precip 
-                    v2 = val2>=min_precip
-                    v3 = val3>=min_precip
-                    if ((v2 and (v1 or v3)) or
-                        (not v2 and (not v1 or not v3)) or
-                        (val1 is None)):
-                        _accum.append(val2)
-                except LookupError:
-                    break
-                except TypeError:
-                    pass
-            # return the most significant weather code out of the list
-            if obsgroup=='group_wmo_ww':
-                return max_ww(_accum)
-            else:
-                return max_wawa(_accum)
         # no accumulator for this observation type
         return None
     
@@ -2417,7 +2585,7 @@ class PrecipData(StdService):
             # unexpected error is considered failure, too
             return None
 
-    def presentweather(self, obstype, record):
+    def presentweather(self, ts, obstype, record):
         """ Postprocess ww and wawa. 
         
             Do such postprocessing that is not possible within the device
@@ -2427,7 +2595,6 @@ class PrecipData(StdService):
             
         """
         if obstype not in record: return
-        ts = record.get('dateTime',time.time())
         # According to the standards a thunderstorm ends when the last
         # lightning strike appeared more than 10 minutes ago.
         if self.lightning_strike_ts<(ts-600):
@@ -2516,7 +2683,7 @@ class PrecipData(StdService):
                         awekas1 = AWEKAS[self.current_awekas][2] if self.current_awekas is not None else -1
                         awekas2 = AWEKAS[new_awekas][2] if new_awekas is not None else -1
                         if new_awekas:
-                            loginf('AWEKAS vgl %s %s %s %s' % (self.current_awekas,new_awekas,awekas1,awekas2))
+                            logdbg('AWEKAS vgl %s %s %s %s' % (self.current_awekas,new_awekas,awekas1,awekas2))
                         if awekas2>awekas1:
                             self.current_awekas = new_awekas
                 except (LookupError,ValueError,TypeError,ArithmeticError) as e:
@@ -2595,6 +2762,9 @@ class PrecipData(StdService):
 
     def new_archive_record(self, event):
         """ Process new archive record event. """
+        ts = event.record.get('dateTime',time.time())
+        interval = event.record.get('interval',self.archive_interval/60)*60
+        timespan = (ts-interval,ts)
         for thread_name in self.threads:
             # log error if we did not receive any data from the device
             if self.log_failure and not self.threads[thread_name]['reply_count']:
@@ -2604,6 +2774,28 @@ class PrecipData(StdService):
                 loginf("%s records received from %s during archive interval" % (self.threads[thread_name]['reply_count'],thread_name))
             # reset counter
             self.threads[thread_name]['reply_count'] = 0
+            # get readings that are not accumulated from the LOOP packets
+            # but by the thread itself
+            # Note: This is done because some readings sent within the 
+            #       LOOP packets get fixed or removed afterwards due
+            #       to quality control.
+            try:
+                reply = self.threads[thread_name]['thread'].get_archive_record(timespan)
+                if reply:
+                    try:
+                        self.presentweather(ts,'ww',reply)
+                    except (LookupError,ValueError,TypeError,ArithmeticError):
+                        pass
+                    try:
+                        self.presentweather(ts,'wawa',reply)
+                    except (LookupError,ValueError,TypeError,ArithmeticError):
+                        pass
+                    data = self._to_weewx(thread_name,reply,event.record['usUnits'])
+                    event.record.update(data)
+                    loginf(data)
+            except Exception as e:
+                #except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                logerr("Error reading archive record from thread '%s': %s %s" % (thread_name,e.__class__.__name__,e))
         # special accumulators
         event.record.update(self.old_accum)
         self.old_accum = dict()
@@ -2720,16 +2912,22 @@ class PrecipArchive(StdService):
             self.dbm_close()
         except Exception:
             pass
-        
+    
     def new_loop_packet(self, event):
         """ process loop packet """
         if self.dbm:
-            self.dbm_new_loop_packet(event.packet)
+            try:
+                self.dbm_new_loop_packet(event.packet)
+            except Exception as e:
+                logerr('new_loop_packet %s %s' % (e.__class__.__name__))
 
     def new_archive_record(self, event):
         """ process archive record """
         if self.dbm:
-            self.dbm_new_archive_record(event.record)
+            try:
+                self.dbm_new_archive_record(event.record)
+            except Exception as e:
+                logerr('saving to database: %s %s' % (e.__class__.__name__,e))
 
     def dbm_init(self, engine, binding, binding_found):
         self.accumulator = None
@@ -2753,7 +2951,7 @@ class PrecipArchive(StdService):
     def dbm_close(self):
         if self.dbm:
             self.dbm.close()
-        
+    
     def dbm_new_loop_packet(self, packet):
         """ Copyright (C) Tom Keffer """
         # Do we have an accumulator at all? If not, create one:
@@ -2771,14 +2969,14 @@ class PrecipArchive(StdService):
                 (self.accumulator, self._new_accumulator(packet['dateTime']))
             # Try again:
             self.accumulator.addRecord(packet, add_hilo=True)
-        
+    
     def dbm_new_archive_record(self, record):
         if self.dbm:
             self.dbm.addRecord(record,
                            accumulator=self.old_accumulator,
                            log_success=self.log_success,
                            log_failure=self.log_failure)
-        
+    
     def _new_accumulator(self, timestamp):
         """ Copyright (C) Tom Keffer """
         start_ts = weeutil.weeutil.startOfInterval(timestamp,
@@ -2792,6 +2990,16 @@ class PrecipArchive(StdService):
         
 if __name__ == '__main__':
 
+    def print_record(record):
+        if False:
+            print(record)
+        else:
+            for ii in ('ottHistory','ottWawa','wawa','precipitationStart','presentweatherStart','presentweatherTime','ottRainDur','rainDur'):
+                if ii in record:
+                    print('%-20s: %s' % (ii,record[ii]))
+                else:
+                    print('%-20s: not in record' % ii)
+    
     conf_dict = configobj.ConfigObj("PrecipMeter.conf")
 
     if False:
@@ -2826,8 +3034,8 @@ if __name__ == '__main__':
                     sv.new_loop_packet(event)
                     if len(event.packet)>1:
                         print('=== LOOP ===================================================')
-                        print(event.packet)
-                        print(type(event.packet.get('ottHistory')))
+                        print_record(event.packet)
+                        #print(type(event.packet.get('ottHistory')))
                         print('============================================================')
                     time.sleep(10)
                 sv.end_archive_period(dict())
@@ -2835,7 +3043,7 @@ if __name__ == '__main__':
                 event.record = {'usUnits':weewx.METRIC}
                 sv.new_archive_record(event)
                 print('=== ARCHIVE ================================================')
-                print(event.record)
+                print_record(event.record)
                 if 'ottHistory' in event.record:
                     wawa_list = []
                     ww_list =[]

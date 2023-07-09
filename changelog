@@ -31,3 +31,6 @@
 * observation type `frostIndicator`
 * handle firmware error of Ott Parsivel2 that erroneously produces ww62
 * AWEKAS support
+* divide PrecipThread.presentweather() into 2 parts
+* replace special accumulators by providing the archive record by the thread
+* changed detection of erroneous readings
