@@ -312,10 +312,14 @@ before and after. This is because the propability of error ist about
 
 ### General observation types
 
-* `ww`: present weather code according to WMO table 4677, enhanced by
-  this extension
-* `wawa`: present weather code according to WMO table 4680, enhanced by
-  this extension
+* `ww`: most significant present weather code according to WMO table 4677
+  during the archive interval, enhanced by this extension
+* `wawa`: most significant present weather code according to WMO table 4680
+  during the archive interval, enhanced by this extension
+* `presentweatherWw`: present weather code according to WMO table 4677
+  belonging to `presentweatherStart`
+* `presentweatherWawa`: present weather code according to WMO table 4680
+  belonging to `presentweatherStart`
 * `presentweatherStart`: timestamp of the beginning of the present weather
 * `presentweatherTime`: time elapsed since last change of the present weather
 * `precipitationStart`: timestamp of the beginning of the present

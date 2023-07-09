@@ -34,3 +34,4 @@
 * divide PrecipThread.presentweather() into 2 parts
 * replace special accumulators by providing the archive record by the thread
 * changed detection of erroneous readings
+* added `presentweatherWw` and `presentweatherWawa`

@@ -144,10 +144,10 @@ import weewx.xtypes
 
 ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
-ACCUM_HISTORY = ACCUM_STRING
 ACCUM_LAST = { 'extractor':'last' }
 ACCUM_MAX = { 'extractor':'max' }
 ACCUM_NOOP = { 'accumulator':'firstlast','adder':'noop','extractor':'noop' }
+ACCUM_HISTORY = ACCUM_NOOP
 
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
@@ -687,6 +687,8 @@ table = [
     ('interval',             'INTEGER NOT NULL'),
     ('ww',                   'INTEGER'),
     ('wawa',                 'INTEGER'),
+    ('presentweatherWw',     'INTEGER'),
+    ('presentweatherWawa',   'INTEGER'),
     ('presentweatherStart',  'INTEGER'),
     ('presentweatherTime',   'REAL'),
     ('precipitationStart',   'INTEGER'),
@@ -958,6 +960,8 @@ class PrecipThread(threading.Thread):
         self.query_interval = query_interval
         self.device_interval = 60
         self.last_data_ts = time.time()+120
+        
+        # Intialize variables for AWEAKAS support
         self.last_awekas = None
         self.last_awekas_ct = 10
         self.sent_awekas = None
@@ -1342,7 +1346,7 @@ class PrecipThread(threading.Thread):
             print('presentweather_list',self.presentweather_list)
         return precipstart
     
-    def presentweather(self, ts, ww, wawa):
+    def presentweather(self, ts):
         """ Postprocessing of ww and wawa.
             
             enhances ww and wawa and calculates `presentweatherStart`,
@@ -1355,10 +1359,6 @@ class PrecipThread(threading.Thread):
             
             Args:
                 ts (int): timestamp of the end of the timespan to process
-                ww (int): actual ww code or most significant code of
-                    the archive period
-                wawa (int): actual wawa code or most significant code of
-                    the archive period
                 
             Returns:
                 ww (int): postprocessed ww code
@@ -1386,6 +1386,8 @@ class PrecipThread(threading.Thread):
                 if __name__ == '__main__' and TEST_LOG_THREAD:
                     print('idx',idx,'ii',ii)
                 duration = ii[1]-ii[0]
+                ww = ii[2]
+                wawa = ii[3]
                 # get weather type 
                 wwtype1 = WW_TYPE_REVERSED.get(ii[2],ii[2]) 
                 wawatype1 = WAWA_TYPE_REVERSED.get(ii[3],ii[3]) 
@@ -1890,6 +1892,8 @@ class PrecipThread(threading.Thread):
                         # history of present weather codes of the last hour
                         record[self.prefix+'History'] = (self.presentweather_list,'byte','group_data')
                     if self.set_weathercodes:
+                        # start timestamp of the current precipitation
+                        # independent of kind and intensity
                         record['precipitationStart'] = (pstart,'unix_epoch','group_time')
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 # throttle the error logging frequency to once in 5 minutes
@@ -1917,19 +1921,21 @@ class PrecipThread(threading.Thread):
             elif wawa is not None:
                 self.awekaspresentweather(WAWA_AWEKAS.get(wawa),record)
 
-        # Postprocessing
+        # Postprocess the present weather codes ww and wawa
         if record and self.set_weathercodes:
             try:
                 # Postprocess readings and maintain thread database
                 if self.presentweather_lock.acquire():
                     try:
-                        ww, wawa, since, elapsed = self.presentweather(ts, ww, wawa)
+                        ww, wawa, since, elapsed = self.presentweather(ts)
                     finally:
                         self.presentweather_lock.release()
                     if ww is not None: 
                         record['ww'] = (ww,'byte','group_wmo_ww')
+                        record['presentweatherWw'] = (ww,'byte','group_wmo_ww')
                     if wawa is not None: 
                         record['wawa'] = (wawa,'byte','group_wmo_wawa')
+                        record['presentweatherWawa'] = (wawa,'byte','group_wmo_wawa')
                     if since: 
                         record['presentweatherStart'] = (since,'unix_epoch','group_time')
                     if elapsed is not None: 
@@ -1943,7 +1949,7 @@ class PrecipThread(threading.Thread):
                     else:
                         self.next_presentweather_error = time.time()+300
 
-        # `visibity`
+        # `visibility`
         if record and self.set_visibility and self.prefix:
             try:
                 if (self.prefix+'MOR') in record: 
@@ -1985,6 +1991,15 @@ class PrecipThread(threading.Thread):
             self.last_data_ts = time.time()+600
         
     def put_data(self, ts, x):
+        """ put data into the queue for further processing in PrecipData 
+        
+            Args:
+                ts (int): timestamp of the data
+                x (dict): data
+                
+            Returns:
+                nothing
+        """
         if x:
             if self.data_queue:
                 try:
@@ -2031,7 +2046,7 @@ class PrecipThread(threading.Thread):
                             wawa_list.append(el[3])
                 # get the postprocessed values if necessary
                 if self.set_weathercodes:
-                    ww, wawa, since, elapsed = self.presentweather(timespan[1],0,0)
+                    ww, wawa, since, elapsed = self.presentweather(timespan[1])
             finally:
                 self.presentweather_lock.release()
         # set the thread readings
@@ -2043,9 +2058,11 @@ class PrecipThread(threading.Thread):
             if ww is not None: 
                 ww_list.append(ww)
                 record['ww'] = (max_ww(ww_list),'byte','group_wmo_ww')
+                record['presentweatherWw'] = (ww,'byte','group_wmo_ww')
             if wawa is not None:
                 wawa_list.append(wawa) 
                 record['wawa'] = (max_wawa(wawa_list),'byte','group_wmo_wawa')
+                record['presentweatherWawa'] = (wawa,'byte','group_wmo_wawa')
             if since: 
                 record['presentweatherStart'] = (since,'unix_epoch','group_time')
             if elapsed is not None: 
@@ -2113,14 +2130,22 @@ class PrecipData(StdService):
         sqlite_root = config_dict.get('DatabaseTypes',configobj.ConfigObj()).get('SQLite',configobj.ConfigObj()).get('SQLITE_ROOT','.')
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
+        weewx.units.obs_group_dict.setdefault('presentweatherWw','group_wmo_ww')
+        weewx.units.obs_group_dict.setdefault('presentweatherWawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
         weewx.units.obs_group_dict.setdefault('precipitationStart','group_time')
         weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
         weewx.units.obs_group_dict.setdefault('visibility','group_distance')
         weewx.units.obs_group_dict.setdefault('frostIndicator','group_boolean')
         weewx.units.obs_group_dict.setdefault('AWEKASpresentweather','group_data')
+        # The accumulation for `ww`, `wawa`, `presentweatherStart`,
+        # `precipitationStart`, and `presentweatherTime` is done within
+        # the assigned thread because of special quality control.
+        # Nevertheless it turned out that they need an accumulator anyway.
         weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
+        weewx.accum.accum_dict.setdefault('presentweatherWw',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherWawa',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('precipitationStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
@@ -2316,6 +2341,8 @@ class PrecipData(StdService):
             _accum[obstype] = ACCUM_SUM
             # present weather code history of the last hour
             # (for debugging purposes)
+            # Warning: the `firstlast` accumulator converts all values
+            #          to strings. So it cannot be used here.
             obstype = thread_dict['prefix']+'History'
             obsgroup = 'group_data'
             weewx.units.obs_group_dict.setdefault(obstype,obsgroup)
@@ -2419,7 +2446,7 @@ class PrecipData(StdService):
                 for key,val in data1[1].items():
                     if key in data:
                         # further occurances of the observation type
-                        if key=='presentweatherTime':
+                        if key in ('presentweatherWw','presentweatherWawa','presentweatherStart','presentweatherTime','precipitationStart'):
                             data[key] = val
                         elif ((self.threads[thread_name].get('prefix') and
                             key==(self.threads[thread_name]['prefix']+'Rain')) or
@@ -2994,7 +3021,7 @@ if __name__ == '__main__':
         if False:
             print(record)
         else:
-            for ii in ('ottHistory','ottWawa','wawa','precipitationStart','presentweatherStart','presentweatherTime','ottRainDur','rainDur'):
+            for ii in ('ottHistory','ottWawa','wawa','precipitationStart','presentweatherWawa','presentweatherStart','presentweatherTime','ottRainDur','rainDur'):
                 if ii in record:
                     print('%-20s: %s' % (ii,record[ii]))
                 else:
