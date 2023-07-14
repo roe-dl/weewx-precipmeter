@@ -142,6 +142,8 @@ import weeutil.weeutil
 import weewx.accum
 import weewx.xtypes
 
+# Accumulators
+
 ACCUM_SUM = { 'extractor':'sum' }
 ACCUM_STRING = { 'accumulator':'firstlast','extractor':'last' }
 ACCUM_LAST = { 'extractor':'last' }
@@ -149,17 +151,23 @@ ACCUM_MAX = { 'extractor':'max' }
 ACCUM_NOOP = { 'accumulator':'firstlast','adder':'noop','extractor':'noop' }
 ACCUM_HISTORY = ACCUM_NOOP
 
+# Initialize default unit for the unit groups defined in this extension
+
 for _,ii in weewx.units.std_groups.items():
     ii.setdefault('group_wmo_ww','byte')
     ii.setdefault('group_wmo_wawa','byte')
     ii.setdefault('group_wmo_W','byte')
     ii.setdefault('group_wmo_Wa','byte')
     ii.setdefault('group_rainpower','watt_per_meter_squared')
+
+# Set the target unit groups for aggregation types defined by this extension
     
 weewx.units.agg_group.setdefault('wmo_W1','group_wmo_W')
 weewx.units.agg_group.setdefault('wmo_W2','group_wmo_W')
 weewx.units.agg_group.setdefault('wmo_Wa1','group_wmo_Wa')
 weewx.units.agg_group.setdefault('wmo_Wa2','group_wmo_Wa')
+
+# Additional unit conversion formulae
 
 MILE_PER_METER = 1.0/weewx.units.METER_PER_MILE
 weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER)
@@ -546,6 +554,7 @@ WA_WW = [
 WA_WAWA_REVERSED = { i:j for j,k in enumerate(WA_WAWA) for i in k }
 WA_WW_REVERSED = { i:j for j,k in enumerate(WA_WW) for i in k }
 
+# ww to AWEKAS code
 WW_AWEKAS = {
    0: 0,
    1: 0,
@@ -590,6 +599,7 @@ WW_AWEKAS = {
   53:23, # drizzle
   55:23, # drizzle
 }
+# wawa to AWEKAS code
 WAWA_AWEKAS = {
    0: 0,
   33: 7, # fog
@@ -636,6 +646,7 @@ WAWA_AWEKAS = {
   52:23, # drizzle
   53:23, # drizzle
 }
+# AWEKAS codes
 # german description, English description, severity, icon
 AWEKAS = [
     # 0 clear warning
@@ -870,6 +881,10 @@ def get_wa1wa2_from_wawa_or_ww(ww_list,obsgroup):
         w2 = None
     return w_list[0], w1, w2
 
+##############################################################################
+#    XType extension to provide special aggregation types                    #
+##############################################################################
+
 # In general the maximum of ww or wawa is returned for the present weather
 # of some kind of timespan. But there are some little exceptions. A special
 # function is provided to handle the 'max' aggregation type of ww and wawa
@@ -933,6 +948,9 @@ class PrecipXType(weewx.xtypes.XType):
             # W2 or Wa2
             return weewx.units.ValueTuple(w2,'byte',target_group)
 
+##############################################################################
+#    Thread to retrieve and process disdrometer data                         #
+##############################################################################
 
 class PrecipThread(threading.Thread):
 
@@ -1115,11 +1133,12 @@ class PrecipThread(threading.Thread):
                 ww (int): new ww code
                 wawa (int): new wawa code
                 metar (str): new METAR code
-                p_abs 
-                p_rate
+                p_abs (float): accumulated precipitation
+                p_rate (float): precipitation intensity
                 
             Returns:
-                No return value, but updated self.presentweather_list
+                int: start of precipitation timestamp or None
+                updated self.presentweather_list
         """
         # A value of None is possible. Otherwise the value must be of
         # type int (or str in case of metar).
@@ -1525,7 +1544,7 @@ class PrecipThread(threading.Thread):
                     # re-initialize dur_dict
                     dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
             if start:
-                elapsed = self.presentweather_list[-1][1]-start
+                elapsed = ts-start if ts else self.presentweather_list[-1][1]-start
                 start = int(start)
             else:
                 elapsed = None
@@ -1594,6 +1613,8 @@ class PrecipThread(threading.Thread):
         self.last_awekas = awekas
     
     def getRecord(self, ot):
+        """ fetch data from the device and decode it
+        """
     
         if __name__ == '__main__' and TEST_LOG_THREAD:
             print()
@@ -2111,6 +2132,9 @@ class PrecipThread(threading.Thread):
             # done
             loginf("thread '%s' stopped" % self.name)
 
+##############################################################################
+#    Service to receive and process weather condition data                   #
+##############################################################################
 
 class PrecipData(StdService):
 
@@ -2891,6 +2915,15 @@ class PrecipData(StdService):
                 data[key] = val
         return data
 
+##############################################################################
+#    Service to save data to a database                                      #
+##############################################################################
+
+# This service is intended to save the readings gathered by this extension
+# to a separate database. So the user need not add columns to the core 
+# database of WeeWX to store that readings. The service uses the database 
+# interface provided by WeeWX.
+
 class PrecipArchive(StdService):
     """ Store PrecipMeter data to a separate database """
 
@@ -2957,6 +2990,7 @@ class PrecipArchive(StdService):
                 logerr('saving to database: %s %s' % (e.__class__.__name__,e))
 
     def dbm_init(self, engine, binding, binding_found):
+        """ open or create database """
         self.accumulator = None
         self.old_accumulator = None
         self.dbm = None
@@ -2976,6 +3010,7 @@ class PrecipArchive(StdService):
             loginf("no database access")
     
     def dbm_close(self):
+        """ close database access """
         if self.dbm:
             self.dbm.close()
     
@@ -2998,6 +3033,7 @@ class PrecipArchive(StdService):
             self.accumulator.addRecord(packet, add_hilo=True)
     
     def dbm_new_archive_record(self, record):
+        """ add new archive record and update daily summary """
         if self.dbm:
             self.dbm.addRecord(record,
                            accumulator=self.old_accumulator,
@@ -3014,6 +3050,7 @@ class PrecipArchive(StdService):
         new_accumulator = weewx.accum.Accum(weeutil.weeutil.TimeSpan(start_ts, end_ts))
         return new_accumulator
 
+##############################################################################
         
 if __name__ == '__main__':
 

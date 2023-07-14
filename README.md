@@ -174,7 +174,7 @@ Actually none.
   `outTemp`)
 * `temp5cm`: observation type of air temperature 5cm above ground (default
   no observation available)
-* `soil5cm`: observatoin type of soil temperature 5cm below ground
+* `soil5cm`: observation type of soil temperature 5cm below ground
   (default `soilTemp1`)
 * `windSpeed`: observation type of wind speed (default `windSpeed`)
 * `windSpeed10`: observation type of 10 minutes average of wind speed
@@ -317,9 +317,15 @@ before and after. This is because the propability of error ist about
 * `wawa`: most significant present weather code according to WMO table 4680
   during the archive interval, enhanced by this extension
 * `presentweatherWw`: present weather code according to WMO table 4677
-  belonging to `presentweatherStart`
+  at the end of the archive interval. 
+  This is the weather condition that started at the time 
+  `presentweatherStart` reports and lasted for the time 
+  `presentweatherTime` reports.
 * `presentweatherWawa`: present weather code according to WMO table 4680
-  belonging to `presentweatherStart`
+  at the end of the archive interval. 
+  This is the weather condition that started at the time 
+  `presentweatherStart` reports and lasted for the time 
+  `presentweatherTime` reports.
 * `presentweatherStart`: timestamp of the beginning of the present weather
 * `presentweatherTime`: time elapsed since last change of the present weather
 * `precipitationStart`: timestamp of the beginning of the present
