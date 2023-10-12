@@ -19,7 +19,7 @@
 
 """
 
-VERSION = "0.7"
+VERSION = "0.8"
 
 SIMULATE_ERRONEOUS_READING = False
 TEST_LOG_THREAD = False
@@ -523,6 +523,46 @@ WAWA_INTENSITY = [
 
 WW_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WW_INTENSITY)) for i in k }
 WAWA_INTENSITY_REVERSED = { i:4-j for j,k in enumerate(reversed(WAWA_INTENSITY)) for i in k }
+
+# light    <[0]
+# moderate >=[0] to <[1]
+# heavy    >=[1]
+WW_WAWA_INTENSITY_THRESHOLD = {
+    # drizzle                | Sprühregen (Niesel)
+    'DZ':(0.1,0.5),
+    # drizzle and rain       | Sprühregen und Regen
+    'RADZ':(2.5,10.0),
+    # rain                   | Regen
+    'RA':(2.5,10.0),
+    # rain and snow          | Schneeregen
+    'RASN':(2.5,10.0),
+    # snow                   | Schneefall
+    'SN':(1.0,4.0),
+    # snow grains            | Schneegriesel
+    'SG':(0.0,0.0),
+    # graupel                | Graupel
+    'GS':(1.0,1.0),
+    # hail                   | Hagel
+    'GR':(2.5,2.5)
+}
+METAR_INTENSITY_THRESHOLD = {
+    # drizzle                | Sprühregen (Niesel)
+    'DZ':(0.25,0.5),
+    # drizzle and rain       | Sprühregen und Regen
+    'RADZ':(2.5,7.6),
+    # rain                   | Regen
+    'RA':(2.5,7.6),
+    # rain and snow          | Schneeregen
+    'RASN':(2.5,7.6),
+    # snow                   | Schneefall
+    'SN':(1.25,2.5),
+    # snow grains            | Schneegriesel
+    'SG':(1.25,2.5),
+    # graupel                | Graupel
+    'GS':(1.25,2.5),
+    # hail                   | Hagel
+    'GR':(0.0,0.0)
+}
 
 # past weather VuB2 BUFR page 259
 
@@ -1274,6 +1314,53 @@ class PrecipThread(threading.Thread):
                             last_el[8] = p_rate
                             last_el[9] = 1
                             last_el[10] = p_abs
+                    elif (PrecipThread.is_el_precip(prev_el) and
+                          PrecipThread.is_el_precip(last_el) and
+                          is_precipitation):
+                        # 3 different elements of precipitation
+                        if (prev_el[2] is not None and 
+                            last_el[2] is not None and 
+                            ww is not None):
+                            # ww is present, so we use it
+                            same = prev_el[2]==ww
+                            prev_type = WW_TYPE_REVERSED[prev_el[2]]
+                            last_type = WW_TYPE_REVERSED[last_el[2]]
+                        elif (prev_el[3] is not None and
+                              last_el[3] is not None and
+                              wawa is not None):
+                            # check for wawa instead
+                            same = prev_el[3]==wawa
+                            prev_type = WAWA_TYPE_REVERSED[prev_el[3]]
+                            last_type = WAWA_TYPE_REVERSED[last_el[3]]
+                        else:
+                            # neither ww nor wawa is present
+                            same = False
+                        if (same and 
+                              (prev_type==last_type or 
+                              (prev_type=='RADZ' and last_type in ('RA','DZ')))):
+                            # The actual code is the same as the previous
+                            # one. In between there is a code of the same
+                            # type of precipitation, but of different 
+                            # intensity, which lasted for a short time
+                            # only.
+                            loginf("thread '%s': added ww/wawa %s/%s to %s/%s, new %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
+                            prev_el[1] = last_el[1]
+                            prev_el[8] += last_el[8] # p_rate sum
+                            prev_el[9] += last_el[9] # p_rate count
+                            prev_el[10] = last_el[10] # last p_abs
+                            del self.presentweather_list[-1]
+                            add = False
+                            # Now remove the last row from the database,
+                            # as this is the active row again.
+                            try:
+                                cur = self.db_conn.cursor()
+                                cur.execute('DELETE FROM precipitation WHERE `start`=?',tuple((self.presentweather_list[-1][0],)))
+                                self.db_conn.commit()
+                                cur.close()
+                            except sqlite3.Error as e:
+                                logerr("thread '%s': SQLITE DELETE %s %s" % (self.name,e.__class__.__name__,e))
+                            except LookupError:
+                                pass
             except (LookupError,ValueError,TypeError,ArithmeticError):
                 pass
         # add a new record or update the timestamp
@@ -2843,7 +2930,7 @@ class PrecipData(StdService):
                         pass
                     data = self._to_weewx(thread_name,reply,event.record['usUnits'])
                     event.record.update(data)
-                    loginf(data)
+                    logdbg(data)
             except Exception as e:
                 #except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 logerr("Error reading archive record from thread '%s': %s %s" % (thread_name,e.__class__.__name__,e))
