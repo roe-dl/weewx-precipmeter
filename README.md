@@ -699,6 +699,7 @@ See wiki.
 * [How different data intervals are handled within this extension](https://github.com/roe-dl/weewx-precipmeter/wiki/How-different-data-intervals-are-handled-within-this-extension)
 * [How to determine "state after some weather condition" codes (20...29)?](https://github.com/roe-dl/weewx-precipmeter/wiki/How-to-determine-%22state-after-some-weather-condition%22-codes-(20...29)%3F)
 * [How to detect freezing rain and freezing drizzle](https://github.com/roe-dl/weewx-precipmeter/wiki/How-to-detect-freezing-rain-and-freezing-drizzle)
+* [Quality checks](https://github.com/roe-dl/weewx-precipmeter/wiki/Quality-checks)
 
 ## How to set up Ott Parsivel<sup>2</sup>?
 

@@ -35,3 +35,6 @@
 * replace special accumulators by providing the archive record by the thread
 * changed detection of erroneous readings
 * added `presentweatherWw` and `presentweatherWawa`
+0.8
+* intensity level check
+* log traceback for certain errors

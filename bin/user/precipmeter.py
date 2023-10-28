@@ -81,6 +81,7 @@ import socket
 import math
 import sqlite3
 import os.path
+import traceback
 
 # deal with differences between python 2 and python 3
 try:
@@ -135,6 +136,9 @@ else:
 
         def logerr(msg):
             logmsg(syslog.LOG_ERR, msg)
+
+def gettraceback(e):
+    return ' - '.join(traceback.format_tb(e.__traceback__)).replace('\n',' ')
 
 import weewx
 from weewx.engine import StdService
@@ -1973,7 +1977,7 @@ class PrecipThread(threading.Thread):
                     if ii[4] not in self.next_obs_errors:
                         self.next_obs_errors[ii[4]] = 0
                     if self.next_obs_errors[ii[4]]<time.time():
-                        logerr("thread '%s': %s %s %s" % (self.name,ii[4],e.__class__.__name__,e))
+                        logerr("thread '%s': %s %s %s traceback %s" % (self.name,ii[4],e.__class__.__name__,e,gettraceback(e)))
                         self.next_obs_errors[ii[4]] = time.time()+300
             # Thies LNM: list of state values (no. 22 to 37)
             if self.model=='thies-lnm' and self.prefix:
@@ -2006,7 +2010,7 @@ class PrecipThread(threading.Thread):
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 # throttle the error logging frequency to once in 5 minutes
                 if self.next_presentweather_error<time.time():
-                    logerr("thread '%s': update present weather list %s %s" % (self.name,e.__class__.__name__,e))
+                    logerr("thread '%s': update present weather list %s %s traceback %s" % (self.name,e.__class__.__name__,e,gettraceback(e)))
                     if __name__ == '__main__':
                         self.next_presentweather_error = 0
                     else:
@@ -2051,7 +2055,7 @@ class PrecipThread(threading.Thread):
             except (LookupError,ValueError,TypeError,ArithmeticError) as e:
                 # throttle the error logging frequency to once in 5 minutes
                 if self.next_presentweather_error<time.time():
-                    logerr("thread '%s': present weather %s %s" % (self.name,e.__class__.__name__,e))
+                    logerr("thread '%s': present weather %s %s traceback %s" % (self.name,e.__class__.__name__,e,gettraceback(e)))
                     if __name__ == '__main__':
                         self.next_presentweather_error = 0
                     else:
@@ -2118,7 +2122,7 @@ class PrecipThread(threading.Thread):
                     # ignore the packet
                     pass
                 except (KeyError,ValueError,LookupError,ArithmeticError) as e:
-                    logerr("thread '%s': %s" % (self.name,e))
+                    logerr("thread '%s': %s %s traceback %s" % (self.name,e.__class__.__name__,e,gettraceback(e)))
                     
     def get_archive_record(self, timespan):
         """ get an archive record for timespan 
@@ -2192,7 +2196,7 @@ class PrecipThread(threading.Thread):
                     if not self.running: break
                     self.evt.wait(self.query_interval)
         except Exception as e:
-            logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
+            logerr("thread '%s': %s %s traceback %s" % (self.name,e.__class__.__name__,e,gettraceback(e)))
         finally:
             # remember the present weather codes of the last hour
             try:
@@ -2662,7 +2666,7 @@ class PrecipData(StdService):
                     self.old_accum[obs[0]] = val
             except (ValueError,TypeError,LookupError,ArithmeticError) as e:
                 if self.log_failure:
-                    logerr("accumulator %s %s %s %s" % (thread_name,obs,e.__class__.__name__,e))
+                    logerr("accumulator %s %s %s %s traceback %s" % (thread_name,obs,e.__class__.__name__,e,gettraceback(e)))
             # re-initialize accumulator
             if obs[2]=='group_data':
                 # remove the value for group_data
@@ -2933,7 +2937,7 @@ class PrecipData(StdService):
                     logdbg(data)
             except Exception as e:
                 #except (LookupError,ValueError,TypeError,ArithmeticError) as e:
-                logerr("Error reading archive record from thread '%s': %s %s" % (thread_name,e.__class__.__name__,e))
+                logerr("Error reading archive record from thread '%s': %s %s traceback %s" % (thread_name,e.__class__.__name__,e,gettraceback(e)))
         # special accumulators
         event.record.update(self.old_accum)
         self.old_accum = dict()
@@ -3066,7 +3070,7 @@ class PrecipArchive(StdService):
             try:
                 self.dbm_new_loop_packet(event.packet)
             except Exception as e:
-                logerr('new_loop_packet %s %s' % (e.__class__.__name__))
+                logerr('new_loop_packet %s %s' % (e.__class__.__name__,e))
 
     def new_archive_record(self, event):
         """ process archive record """
