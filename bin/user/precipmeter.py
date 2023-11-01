@@ -2196,7 +2196,10 @@ class PrecipThread(threading.Thread):
                     if not self.running: break
                     self.evt.wait(self.query_interval)
         except Exception as e:
-            logerr("thread '%s': %s %s traceback %s" % (self.name,e.__class__.__name__,e,gettraceback(e)))
+            logerr("thread '%s': %s %s" % (self.name,e.__class__.__name__,e))
+            for ii in traceback.format_tb(e.__traceback__):
+                for jj in ii.splitlines():
+                    logerr("thread '%s': *** %s" % (self.name,jj.replace('\n',' ').strip()))
         finally:
             # remember the present weather codes of the last hour
             try:
