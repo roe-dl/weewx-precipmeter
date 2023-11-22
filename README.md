@@ -126,6 +126,7 @@ It is possible to configure more than one device.
 * `log_failure`: If True, log unsuccessful operation. 
   If omitted, global options apply. (optional)
 * `data_binding`: data binding to use for storage
+* `db_timeout`: thread database access timeout (optional, default 10s)
 * `weathercodes`: device to get present weather codes from
   (use the section name of the device configuration section)
 * `visibility`: device to get `visbility` reading from

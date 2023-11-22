@@ -1038,6 +1038,7 @@ class PrecipThread(threading.Thread):
         self.sent_awekas = None
 
         self.db_fn = os.path.join(conf_dict['SQLITE_ROOT'],self.name)
+        self.db_timeout = conf_dict.get('db_timeout',10)
         self.db_conn = None
         
         # list of present weather codes of the last hour, initialized
@@ -1143,7 +1144,10 @@ class PrecipThread(threading.Thread):
     def db_open(self):
         """ Open thread present weather database. """
         try:
-            self.db_conn = sqlite3.connect(self.db_fn+'.sdb')
+            self.db_conn = sqlite3.connect(
+                self.db_fn+'.sdb',
+                timeout=self.db_timeout
+            )
             cur = self.db_conn.cursor()
             reply = cur.execute('SELECT name FROM sqlite_master')
             rec = reply.fetchall()
@@ -1348,14 +1352,19 @@ class PrecipThread(threading.Thread):
                         else:
                             # neither ww nor wawa is present
                             same = False
-                        if (same and 
-                              (prev_type==last_type or 
-                              (prev_type=='RADZ' and last_type in ('RA','DZ')))):
+                        #if (same and 
+                        #      (prev_type==last_type or 
+                        #      (prev_type=='RADZ' and last_type in ('RA','DZ')) or
+                        #      (prev_type in ('RA','DZ') and last_type=='RADZ'))
+                        #   ):
+                        if same:
                             # The actual code is the same as the previous
                             # one. In between there is a code of the same
                             # type of precipitation, but of different 
                             # intensity, which lasted for a short time
                             # only.
+                            # Test 2023-11-22: type of precipitation not
+                            # checked any more
                             loginf("thread '%s': added ww/wawa %s/%s to %s/%s, new %s/%s" % (self.name,last_el[2],last_el[3],prev_el[2],prev_el[3],ww,wawa))
                             prev_el[1] = last_el[1]
                             prev_el[8] += last_el[8] # p_rate sum

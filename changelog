@@ -38,3 +38,6 @@
 0.8
 * intensity level check
 * log traceback for certain errors
+* default decimals and unit label for `millivolt`, `decivolt`, and `milliamp`
+* fix bug that caused a thread crash for ww 24, 27, and 29
+* added configurable database timeout
