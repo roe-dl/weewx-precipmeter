@@ -1342,6 +1342,7 @@ class PrecipThread(threading.Thread):
                             same = prev_el[2]==ww
                             prev_type = WW_TYPE_REVERSED[prev_el[2]]
                             last_type = WW_TYPE_REVERSED[last_el[2]]
+                            now_type = WW_TYPE_REVERSED[ww]
                         elif (prev_el[3] is not None and
                               last_el[3] is not None and
                               wawa is not None):
@@ -1349,15 +1350,21 @@ class PrecipThread(threading.Thread):
                             same = prev_el[3]==wawa
                             prev_type = WAWA_TYPE_REVERSED[prev_el[3]]
                             last_type = WAWA_TYPE_REVERSED[last_el[3]]
+                            now_type = WAWA_TYPE_REVERSED[wawa]
                         else:
                             # neither ww nor wawa is present
                             same = False
+                            prev_type = '--'
+                            last_type = '--'
+                            now_type = '--'
                         #if (same and 
                         #      (prev_type==last_type or 
                         #      (prev_type=='RADZ' and last_type in ('RA','DZ')) or
                         #      (prev_type in ('RA','DZ') and last_type=='RADZ'))
                         #   ):
-                        if same:
+                        if (same or
+                            (last_type not in ('RA','DZ','RADZ') and prev_type in ('RA','DZ','RADZ') and now_type in ('RA','DZ','RADZ'))
+                           ):
                             # The actual code is the same as the previous
                             # one. In between there is a code of the same
                             # type of precipitation, but of different 
@@ -1371,7 +1378,7 @@ class PrecipThread(threading.Thread):
                             prev_el[9] += last_el[9] # p_rate count
                             prev_el[10] = last_el[10] # last p_abs
                             del self.presentweather_list[-1]
-                            add = False
+                            add = not same
                             # Now remove the last row from the database,
                             # as this is the active row again.
                             try:
@@ -2723,24 +2730,24 @@ class PrecipData(StdService):
                 # no observation type for air temperature 5cm configured
                 # That does not comply with the rules of the German Weather Service,
                 # but we need some reasonable result.
-                if self.temp2m_C and self.temp2m_C<0.0:
+                if self.temp2m_C is not None and self.temp2m_C<0.0:
                     return True
             # air temperature 2m and 5cm is below 0°C
-            if (self.temp2m_C and self.temp2m_C<0.0 and
-                self.temp5cm_C and self.temp5cm_C<0.0):
+            if (self.temp2m_C is not None and self.temp2m_C<0.0 and
+                self.temp5cm_C is not None and self.temp5cm_C<0.0):
                 return True
             # soil temperature 5cm is below -0.5°C
-            if (self.soil5cm_C and self.soil5cm_C<-0.5):
+            if (self.soil5cm_C is not None and self.soil5cm_C<-0.5):
                 return True
             # failure indicators
-            if (not self.temp2m_C and not self.soil5cm_C and
-                self.temp5cm_C and self.temp5cm_C>=0.0):
+            if (self.temp2m_C is None and self.soil5cm_C is None and
+                self.temp5cm_C is not None and self.temp5cm_C>=0.0):
                 return None
-            if (self.temp2m_C and self.temp2m_C>=0.0 and
-                not self.temp5cm_C and not self.soil5cm_C):
+            if (self.temp2m_C is not None and self.temp2m_C>=0.0 and
+                self.temp5cm_C is None and self.soil5cm_C is None):
                 return None
-            if (not self.temp2m_C and not self.temp5cm_C and 
-                not self.soil5cm_C):
+            if (self.temp2m_C is None and self.temp5cm_C is None and 
+                self.soil5cm_C is None):
                 return None
             # no frost
             return False
@@ -3146,6 +3153,7 @@ class PrecipArchive(StdService):
     
     def dbm_new_archive_record(self, record):
         """ add new archive record and update daily summary """
+        logdbg("dbm_new_archive_record frostIndicator %s %s" % ('frostIndicator' in record,record.get('frostIndicator')))
         if self.dbm:
             self.dbm.addRecord(record,
                            accumulator=self.old_accumulator,
