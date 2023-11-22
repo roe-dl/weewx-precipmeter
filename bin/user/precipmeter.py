@@ -145,6 +145,8 @@ from weewx.engine import StdService
 import weeutil.weeutil
 import weewx.accum
 import weewx.xtypes
+import weewx.units
+import weewx.defaults
 
 # Accumulators
 
@@ -172,6 +174,13 @@ weewx.units.agg_group.setdefault('wmo_Wa1','group_wmo_Wa')
 weewx.units.agg_group.setdefault('wmo_Wa2','group_wmo_Wa')
 
 # Additional unit conversion formulae
+
+weewx.defaults.defaults['Units']['StringFormats'].setdefault('millivolt',"%.0f")
+weewx.defaults.defaults['Units']['Labels'].setdefault('millivolt',u" mV")
+weewx.defaults.defaults['Units']['StringFormats'].setdefault('decivolt',"%.1f")
+weewx.defaults.defaults['Units']['Labels'].setdefault('decivolt',u" dV")
+weewx.defaults.defaults['Units']['StringFormats'].setdefault('milliamp',"%.0f")
+weewx.defaults.defaults['Units']['Labels'].setdefault('milliamp',u" mA")
 
 MILE_PER_METER = 1.0/weewx.units.METER_PER_MILE
 weewx.units.conversionDict['meter'].setdefault('mile',lambda x: x*MILE_PER_METER)
@@ -1622,13 +1631,13 @@ class PrecipThread(threading.Thread):
                         max_ww_dur = max(dur_dict['ww'].items(),key=lambda x:x[1],default=(None,None))
                         if 29 in dur_dict['ww']:
                             # thunderstorm is most important
-                            max_ww_dur = dur_dict['ww'][29]
+                            max_ww_dur = (29,dur_dict['ww'][29])
                         elif 27 in dur_dict['ww']:
                             # hail shower is second important
-                            max_ww_dur = dur_dict['ww'][27]
+                            max_ww_dur = (27,dur_dict['ww'][27])
                         elif 24 in dur_dict['ww']:
                             # freezing precipitation is third important
-                            max_ww_dur = dur_dict['ww'][24]
+                            max_ww_dur = (24,dur_dict['ww'][24])
                         duration2x = (max_ww_dur, max_wawa2_code)
                         if __name__=='__main__' and TEST_LOG_THREAD:
                             print('     ','duration2x',duration2x,'dur_dict',dur_dict)
