@@ -87,8 +87,16 @@ you alone are responsible for what you do.
 
 2) run the installer
 
+   WeeWX up to version 4.X
+
    ```
    sudo wee_extension --install weewx-precipmeter.zip
+   ```
+
+   WeeWX from version 5.0 on
+
+   ```
+   sudo weectl extension install weewx-precipmeter.zip
    ```
 
 3) edit configuration in weewx.conf
@@ -108,9 +116,18 @@ you alone are responsible for what you do.
 
 5) restart weewx
 
+   for SysVinit systems:
+
    ```
    sudo /etc/init.d/weewx stop
    sudo /etc/init.d/weewx start
+   ```
+
+   for systemd systems:
+
+   ```
+   sudo systemctl stop weewx
+   sudo systemctl start weewx
    ```
 
 ## Configuration
@@ -322,11 +339,19 @@ before and after. This is because the propability of error ist about
   This is the weather condition that started at the time 
   `presentweatherStart` reports and lasted for the time 
   `presentweatherTime` reports.
+* `presentweatherW1`: 1st past weather code according to WMO table 4561
+  for the last 60 minutes
+* `presentweatherW2`: 2nd past weather code according to WMO table 4561
+  for the last 60 minutes
 * `presentweatherWawa`: present weather code according to WMO table 4680
   at the end of the archive interval. 
   This is the weather condition that started at the time 
   `presentweatherStart` reports and lasted for the time 
   `presentweatherTime` reports.
+* `presentweatherWa1`: 1st past weather code according to WMO table 4531
+  for the last 60 minutes
+* `presentweatherWa2`: 2nd past weather code according to WMO table 4531
+  for the last 60 minutes
 * `presentweatherStart`: timestamp of the beginning of the present weather
 * `presentweatherTime`: time elapsed since last change of the present weather
 * `precipitationStart`: timestamp of the beginning of the present

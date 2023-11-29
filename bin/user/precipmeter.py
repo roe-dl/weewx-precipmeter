@@ -407,7 +407,7 @@ WW2 = {
             20: (50,51,52,53,54,55),
             21: (60,61,62,63,64,65,58,59),
             22: (70,71,72,73,74,75),
-            23: (68,69),
+            23: (68,69,79),
             24: (56,57,66,67),
             25: (80,81,82),
             26: (83,84,85,86),
@@ -752,7 +752,11 @@ table = [
     ('ww',                   'INTEGER'),
     ('wawa',                 'INTEGER'),
     ('presentweatherWw',     'INTEGER'),
+    ('presentweatherW1',     'INTEGER'),
+    ('presentweatherW2',     'INTEGER'),
     ('presentweatherWawa',   'INTEGER'),
+    ('presentweatherWa1',    'INTEGER'),
+    ('presentweatherWa2',    'INTEGER'),
     ('presentweatherStart',  'INTEGER'),
     ('presentweatherTime',   'REAL'),
     ('precipitationStart',   'INTEGER'),
@@ -1494,7 +1498,7 @@ class PrecipThread(threading.Thread):
             
             Args:
                 ts (int): timestamp of the end of the timespan to process
-                
+            
             Returns:
                 ww (int): postprocessed ww code
                 wawa (int): postprocessed wawa code
@@ -1513,6 +1517,7 @@ class PrecipThread(threading.Thread):
         dursum = 0
         weather2x = None
         duration2x = ((None,None),(None,None))
+        Wa_list = [0]*10
         try:
             dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
             for idx,ii in enumerate(self.presentweather_list):
@@ -1659,6 +1664,15 @@ class PrecipThread(threading.Thread):
                             print('     ','duration2x',duration2x,'dur_dict',dur_dict)
                     # re-initialize dur_dict
                     dur_dict = {'ww':dict(), 'wawa':dict(), 'metar':dict()}
+                # past weather code
+                try:
+                    if ww is not None:
+                        Wa_list[WA_WW_REVERSED[ww]] += duration
+                    elif wawa is not None:
+                        Wa_list[WA_WAWA_REVERSED[wawa]] += duration
+                except LookupError:
+                    # invalid code
+                    pass
             if start:
                 elapsed = ts-start if ts else self.presentweather_list[-1][1]-start
                 start = int(start)
@@ -1670,13 +1684,13 @@ class PrecipThread(threading.Thread):
             start2x = None
         if len(self.presentweather_list)<2:
             # The weather did not change during the last hour.
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, Wa_list
         if (len(self.presentweather_list)==2 and 
             not self.presentweather_list[0][2] and 
             not self.presentweather_list[0][3]):
             # No significant weather at the beginning of the last hour,
             # then one significant weather condition.
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, Wa_list
         """
         # One kind of weather only (not the same code all the time, but
         # always rain or always snow etc.)
@@ -1687,18 +1701,18 @@ class PrecipThread(threading.Thread):
         if wawa or ww:
             # weather detected
             # TODO: detect showers
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, Wa_list
         elif elapsed>3600:
             # more than one hour no significant weather
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, Wa_list
         else:
             # The significant weather  ended within the last hour. That means, the
             # weather code is 20...29.
             if start2x and start2x>(ts-3600) and duration2x:
-                return duration2x[0][0],duration2x[1][0],start,elapsed
+                return duration2x[0][0],duration2x[1][0],start,elapsed,Wa_list
             #if start2x and start2x>(ts-3600) and weather2x:
             #    return WW2_REVERSED.get(weather2x[2],ww),WAWA2_REVERSED.get(weather2x[3],wawa),start,elapsed
-            return ww, wawa, start, elapsed
+            return ww, wawa, start, elapsed, Wa_list
             
     def awekaspresentweather(self, awekas, record):
         """ set the AWEKASpresentweather observation type 
@@ -2064,7 +2078,7 @@ class PrecipThread(threading.Thread):
                 # Postprocess readings and maintain thread database
                 if self.presentweather_lock.acquire():
                     try:
-                        ww, wawa, since, elapsed = self.presentweather(ts)
+                        ww, wawa, since, elapsed, wa_list = self.presentweather(ts)
                     finally:
                         self.presentweather_lock.release()
                     if ww is not None: 
@@ -2183,7 +2197,7 @@ class PrecipThread(threading.Thread):
                             wawa_list.append(el[3])
                 # get the postprocessed values if necessary
                 if self.set_weathercodes:
-                    ww, wawa, since, elapsed = self.presentweather(timespan[1])
+                    ww, wawa, since, elapsed, wa_list = self.presentweather(timespan[1])
             finally:
                 self.presentweather_lock.release()
         # set the thread readings
@@ -2205,8 +2219,55 @@ class PrecipThread(threading.Thread):
             if elapsed is not None: 
                 record['presentweatherTime'] = (elapsed,'second','group_deltatime')
             record['precipitationStart'] = (pstart,'unix_epoch','group_time')
+            self.pastweather(record,ww,wawa,wa_list)
         return record
 
+    def pastweather(self, record, ww, wawa, wa_list):
+        """ get W1, W2, Wa1, Wa2 """
+        #WW2_WA = [5,6,7,7,None,8,8,8,3,9]
+        #WAWA2_WA = [3,4,5,6,7,None,9,None,None,None]
+        WA_W = [None,4,3,4,None,5,6,7,8,9]
+        try:
+            if ww is not None:
+                wa0 = WA_WW_REVERSED[ww]
+            elif wawa is not None:
+                wa0 = WA_WAWA_REVERSED[wawa]
+            else:
+                return
+        except (LookupError,TypeError):
+            # invalid value
+            return
+        # What the actual weather code already expresses, we need not
+        # repeat in past weather
+        if wa0 is not None:
+            wa_list[wa0] = 0
+        # get Wa1 and Wa2
+        # The higher the index, the higher the significance of the
+        # weather condition. The value in the list is the duration 
+        # of that weather condition during the last hour.
+        wa1 = 0
+        wa2 = 0
+        for idx,val in enumerate(wa_list):
+            if val>=60:
+                wa2 = wa1
+                wa1 = idx
+        # get W1 and W2
+        try:
+            w1 = WA_W[wa1]
+        except (LookupError,TypeError):
+            w1 = None
+        try:
+            w2 = WA_W[wa2]
+        except (LookupError,TypeError):
+            w2 = None
+        # set observations
+        if ww is not None:
+            record['presentweatherW1'] = (w1,'byte','group_wmo_W')
+            record['presentweatherW2'] = (w2,'byte','group_wmo_W')
+        if wawa is not None:
+            record['presentweatherWa1'] = (wa1,'byte','group_wmo_Wa')
+            record['presentweatherWa2'] = (wa2,'byte','group_wmo_Wa')
+    
     def run(self):
         loginf("thread '%s' starting" % self.name)
         self.db_open()
@@ -2274,7 +2335,11 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherWw','group_wmo_ww')
+        weewx.units.obs_group_dict.setdefault('presentweatherW1','group_wmo_W')
+        weewx.units.obs_group_dict.setdefault('presentweatherW2','group_wmo_W')
         weewx.units.obs_group_dict.setdefault('presentweatherWawa','group_wmo_wawa')
+        weewx.units.obs_group_dict.setdefault('presentweatherWa1','group_wmo_Wa')
+        weewx.units.obs_group_dict.setdefault('presentweatherWa2','group_wmo_Wa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
         weewx.units.obs_group_dict.setdefault('precipitationStart','group_time')
         weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
@@ -2288,7 +2353,11 @@ class PrecipData(StdService):
         weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('presentweatherWw',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherW1',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherW2',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherWawa',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherWa1',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('presentweatherWa2',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('precipitationStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
@@ -2571,22 +2640,22 @@ class PrecipData(StdService):
         while True:
             try:
                 # get the next packet
-                data1 = self.threads[thread_name]['queue'].get(block=False)
+                reply = self.threads[thread_name]['queue'].get(block=False)
             except queue.Empty:
                 # no more packets available so far
                 break
             else:
                 try:
-                    self.presentweather(data[2],'ww',data1[1])
+                    self.presentweather(data[2],'ww',reply[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
                 try:
-                    self.presentweather(data[2],'wawa',data1[1])
+                    self.presentweather(data[2],'wawa',reply[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
                 # accumulate readings that arrived since the last LOOP
                 # packet
-                for key,val in data1[1].items():
+                for key,val in reply[1].items():
                     if key in data:
                         # further occurances of the observation type
                         if key in ('presentweatherWw','presentweatherWawa','presentweatherStart','presentweatherTime','precipitationStart'):

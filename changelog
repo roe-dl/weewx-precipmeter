@@ -42,3 +42,4 @@
 * fix bug that caused a thread crash for ww 24, 27, and 29
 * added configurable database timeout
 * fix frost indicator
+* 1 hour past weather observation types
