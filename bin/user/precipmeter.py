@@ -752,11 +752,11 @@ table = [
     ('ww',                   'INTEGER'),
     ('wawa',                 'INTEGER'),
     ('presentweatherWw',     'INTEGER'),
-    ('presentweatherW1',     'INTEGER'),
-    ('presentweatherW2',     'INTEGER'),
+    ('hourPresentweatherW1', 'INTEGER'),
+    ('hourPresentweatherW2', 'INTEGER'),
     ('presentweatherWawa',   'INTEGER'),
-    ('presentweatherWa1',    'INTEGER'),
-    ('presentweatherWa2',    'INTEGER'),
+    ('hourPresentweatherWa1','INTEGER'),
+    ('hourPresentweatherWa2','INTEGER'),
     ('presentweatherStart',  'INTEGER'),
     ('presentweatherTime',   'REAL'),
     ('precipitationStart',   'INTEGER'),
@@ -2262,11 +2262,11 @@ class PrecipThread(threading.Thread):
             w2 = None
         # set observations
         if ww is not None:
-            record['presentweatherW1'] = (w1,'byte','group_wmo_W')
-            record['presentweatherW2'] = (w2,'byte','group_wmo_W')
+            record['hourPresentweatherW1'] = (w1,'byte','group_wmo_W')
+            record['hourPresentweatherW2'] = (w2,'byte','group_wmo_W')
         if wawa is not None:
-            record['presentweatherWa1'] = (wa1,'byte','group_wmo_Wa')
-            record['presentweatherWa2'] = (wa2,'byte','group_wmo_Wa')
+            record['hourPresentweatherWa1'] = (wa1,'byte','group_wmo_Wa')
+            record['hourPresentweatherWa2'] = (wa2,'byte','group_wmo_Wa')
     
     def run(self):
         loginf("thread '%s' starting" % self.name)
@@ -2335,11 +2335,11 @@ class PrecipData(StdService):
         weewx.units.obs_group_dict.setdefault('ww','group_wmo_ww')
         weewx.units.obs_group_dict.setdefault('wawa','group_wmo_wawa')
         weewx.units.obs_group_dict.setdefault('presentweatherWw','group_wmo_ww')
-        weewx.units.obs_group_dict.setdefault('presentweatherW1','group_wmo_W')
-        weewx.units.obs_group_dict.setdefault('presentweatherW2','group_wmo_W')
+        weewx.units.obs_group_dict.setdefault('hourPresentweatherW1','group_wmo_W')
+        weewx.units.obs_group_dict.setdefault('hourPresentweatherW2','group_wmo_W')
         weewx.units.obs_group_dict.setdefault('presentweatherWawa','group_wmo_wawa')
-        weewx.units.obs_group_dict.setdefault('presentweatherWa1','group_wmo_Wa')
-        weewx.units.obs_group_dict.setdefault('presentweatherWa2','group_wmo_Wa')
+        weewx.units.obs_group_dict.setdefault('hourPresentweatherWa1','group_wmo_Wa')
+        weewx.units.obs_group_dict.setdefault('hourPresentweatherWa2','group_wmo_Wa')
         weewx.units.obs_group_dict.setdefault('presentweatherStart','group_time')
         weewx.units.obs_group_dict.setdefault('precipitationStart','group_time')
         weewx.units.obs_group_dict.setdefault('presentweatherTime','group_deltatime')
@@ -2353,11 +2353,11 @@ class PrecipData(StdService):
         weewx.accum.accum_dict.setdefault('ww',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('wawa',ACCUM_MAX)
         weewx.accum.accum_dict.setdefault('presentweatherWw',ACCUM_LAST)
-        weewx.accum.accum_dict.setdefault('presentweatherW1',ACCUM_LAST)
-        weewx.accum.accum_dict.setdefault('presentweatherW2',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('hourPresentweatherW1',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('hourPresentweatherW2',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherWawa',ACCUM_LAST)
-        weewx.accum.accum_dict.setdefault('presentweatherWa1',ACCUM_LAST)
-        weewx.accum.accum_dict.setdefault('presentweatherWa2',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('hourPresentweatherWa1',ACCUM_LAST)
+        weewx.accum.accum_dict.setdefault('hourPresentweatherWa2',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('precipitationStart',ACCUM_LAST)
         weewx.accum.accum_dict.setdefault('presentweatherTime',ACCUM_LAST)
