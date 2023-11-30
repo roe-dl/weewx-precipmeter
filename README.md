@@ -340,18 +340,20 @@ before and after. This is because the propability of error ist about
   `presentweatherStart` reports and lasted for the time 
   `presentweatherTime` reports.
 * `hourPresentweatherW1`: 1st past weather code according to WMO table 4561
-  for the last 60 minutes
+  for the last 60 minutes, related to `presentweatherWw`
 * `hourPresentweatherW2`: 2nd past weather code according to WMO table 4561
-  for the last 60 minutes
+  for the last 60 minutes, related to `presentweatherWw` and
+  `hourPresentweatherW1`
 * `presentweatherWawa`: present weather code according to WMO table 4680
   at the end of the archive interval. 
   This is the weather condition that started at the time 
   `presentweatherStart` reports and lasted for the time 
   `presentweatherTime` reports.
 * `hourPresentweatherWa1`: 1st past weather code according to WMO table 4531
-  for the last 60 minutes
+  for the last 60 minutes, related to `presentweatherWawa`
 * `hourPresentweatherWa2`: 2nd past weather code according to WMO table 4531
-  for the last 60 minutes
+  for the last 60 minutes, related to `presentweatherWawa` and
+  `hourPresentweatherWa1`
 * `presentweatherStart`: timestamp of the beginning of the present weather
 * `presentweatherTime`: time elapsed since last change of the present weather
 * `precipitationStart`: timestamp of the beginning of the present
