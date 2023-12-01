@@ -1076,6 +1076,8 @@ class PrecipThread(threading.Thread):
         self.running = True
         self.evt = threading.Event()
         
+        self.discarded_too_short_ts = 0
+        
         if self.connection_type=='udp':
             # The device sends data by UDP.
             if self.port:
@@ -1227,64 +1229,7 @@ class PrecipThread(threading.Thread):
             try:
                 last_el = self.presentweather_list[-1]
                 prev_el = self.presentweather_list[-2]
-                if (PrecipThread.is_el_precip(last_el) and
-                    not is_precipitation and
-                    (wawa is not None or ww is not None) and
-                    (last_el[1]-last_el[4])<self.error_limit):
-                    # There was precipitation and now is not, and the
-                    # precipitation lasted less than self.error_limit
-                    # This is considered erroneous. We remove all
-                    # the readings since the last non-precipitation
-                    # reading.
-                    if self.prefix:
-                        # send negative rain duration value to
-                        # compensate for the previously reported
-                        # rain duration, now considered erroneous
-                        rec = {
-                            self.prefix+'RainDur':(
-                                last_el[4]-last_el[1],
-                                'second',
-                                'group_deltatime'
-                            )
-                        }
-                        if self.set_rainDur:
-                            rec['rainDur'] = rec[self.prefix+'RainDur']
-                        self.put_data(ts,rec)
-                        #print('negative rainDur')
-                    precipstart = last_el[4]
-                    while (len(self.presentweather_list)>0 and
-                           PrecipThread.is_el_precip(last_el) and
-                           last_el[4]==precipstart):
-                        loginf("thread '%s': discarded ww/wawa/w'w' %s/%s/%s lasting %s seconds" % (self.name,last_el[2],last_el[3],last_el[5],last_el[1]-last_el[0]))
-                        # remove the last element
-                        del self.presentweather_list[-1]
-                        # If there are more elements in the list,
-                        # point last_el to the new last element and
-                        # remove that element from the database,
-                        # as this is the new active element, and
-                        # the active element is in memory only.
-                        if len(self.presentweather_list)>0:
-                            last_el = self.presentweather_list[-1]
-                            try:
-                                cur = self.db_conn.cursor()
-                                cur.execute('DELETE FROM precipitation WHERE `start`=?',tuple((last_el[0],)))
-                                self.db_conn.commit()
-                                cur.close()
-                            except sqlite3.Error as e:
-                                logerr("thread '%s': SQLITE DELETE %s %s" % (self.name,e.__class__.__name__,e))
-                            except LookupError:
-                                pass
-                        else:
-                            last_el = None
-                    # If there is still an element in the list
-                    # (which should always be here), check if the
-                    # actual weather code is different from
-                    # the now last one of the list.
-                    if last_el:
-                        add = (wawa!=last_el[3] or
-                               ww!=last_el[2] or
-                               metar!=last_el[5])
-                elif ((last_el[1]-last_el[0])<=max(self.device_interval,self.error_limit) and
+                if ((last_el[1]-last_el[0])<=max(self.device_interval,self.error_limit) and
                     (wawa is not None or ww is not None)):
                     # The last value appears only once.
                     if ((PrecipThread.is_el_precip(prev_el) and is_precipitation and not PrecipThread.is_el_precip(last_el)) or
@@ -1484,6 +1429,102 @@ class PrecipThread(threading.Thread):
         if __name__ == '__main__' and TEST_LOG_THREAD:
             print('presentweather_list',self.presentweather_list)
         return precipstart
+    
+    def check_erroneous_precipitation(self):
+        """ check for erroneous readings of precipitation """
+        try:
+            if len(self.presentweather_list)>=3:
+                # There are at least 3 elements in the list.
+                now_el = self.presentweather_list[-1]
+                last_el = self.presentweather_list[-2]
+                if (PrecipThread.is_el_precip(last_el) and
+                    not PrecipThread.is_el_precip(now_el) and
+                    (now_el[2] is not None or now_el[3] is not None) and
+                    (last_el[1]-last_el[4])<self.error_limit and
+                    (now_el[1]-now_el[0])>=(self.error_limit*2)
+                ):
+                    # There was precipitation and now is not, and the
+                    # precipitation lasted less than self.error_limit
+                    # This is considered erroneous. We remove all
+                    # the readings since the last non-precipitation
+                    # reading.
+                    if self.prefix:
+                        # send negative rain duration value to
+                        # compensate for the previously reported
+                        # rain duration, now considered erroneous
+                        rec = {
+                            self.prefix+'RainDur':(
+                                last_el[4]-last_el[1],
+                                'second',
+                                'group_deltatime'
+                            )
+                        }
+                        if self.set_rainDur:
+                            rec['rainDur'] = rec[self.prefix+'RainDur']
+                        self.put_data(ts,rec)
+                        #print('negative rainDur')
+                    precipstart = last_el[4]
+                    while (len(self.presentweather_list)>0 and
+                           PrecipThread.is_el_precip(last_el) and
+                           last_el[4]==precipstart):
+                        loginf("thread '%s': discarded ww/wawa/w'w' %s/%s/%s lasting %s seconds" % (self.name,last_el[2],last_el[3],last_el[5],last_el[1]-last_el[0]))
+                        # remove the element from database
+                        try:
+                            cur = self.db_conn.cursor()
+                            cur.execute('DELETE FROM precipitation WHERE `start`=?',tuple((last_el[0],)))
+                            self.db_conn.commit()
+                            cur.close()
+                        except sqlite3.Error as e:
+                            logerr("thread '%s': SQLITE DELETE %s %s" % (self.name,e.__class__.__name__,e))
+                        except LookupError:
+                            pass
+                        # remove the element from memory
+                        del self.presentweather_list[-2]
+                        # If there are more elements in the list,
+                        # point last_el to the new last precipitation element
+                        if len(self.presentweather_list)>1:
+                            last_el = self.presentweather_list[-2]
+                        else:
+                            last_el = None
+                    # If there is still an element in the list
+                    # (which should always be here), check if the
+                    # actual weather code is different from
+                    # the now previous one in the list.
+                    if (last_el and
+                        now_el[3]==last_el[3] and
+                        now_el[2]==last_el[2] and
+                        now_el[5]==last_el[5]
+                    ):
+                        # Remove last_el from the database, as
+                        # this is the new active element, and
+                        # the active element is in memory only.
+                        try:
+                            cur = self.db_conn.cursor()
+                            cur.execute('DELETE FROM precipitation WHERE `start`=?',tuple((last_el[0],)))
+                            self.db_conn.commit()
+                            cur.close()
+                        except sqlite3.Error as e:
+                            logerr("thread '%s': SQLITE DELETE %s %s" % (self.name,e.__class__.__name__,e))
+                        except LookupError:
+                            pass
+                        # merge the last 2 elements
+                        self.presentweather_list[-2] = [
+                            last_el[0],           # start timestamp
+                            now_el[1],            # end timestamp
+                            now_el[2],            # ww
+                            now_el[3],            # wawa
+                            None,                 # start of precipitation
+                            now_el[5],            # metar
+                            now_el[6]+last_el[6], # intsum
+                            now_el[7]+last_el[7], # dursum
+                            now_el[8]+last_el[8], # sum of rain rate
+                            now_el[9]+last_el[9], # count of rain rate
+                            now_el[10]            # accumulated rain
+                        ]
+                        del self.presentweather_list[-1]
+                    
+        except (TypeError,ValueError,LookupError,ArithmeticError) as e:
+            logerr("thread '%s': check_erroneous_precipitation %s %s" % (self.name,e.__class__.__name__,e))
     
     def presentweather(self, ts):
         """ Postprocessing of ww and wawa.
@@ -2038,6 +2079,7 @@ class PrecipThread(threading.Thread):
         if self.presentweather_lock.acquire():
             try:
                 pstart = self.update_presentweather_list(ts, ww, wawa, metar, p_abs, p_rate)
+                self.check_erroneous_precipitation()
                 if record:
                     if self.prefix:
                         # history of present weather codes of the last hour

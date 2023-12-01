@@ -43,3 +43,4 @@
 * added configurable database timeout
 * fix frost indicator
 * 1 hour past weather observation types
+* changed erroneous readings check and moved it to a separate function
