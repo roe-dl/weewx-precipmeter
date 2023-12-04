@@ -582,7 +582,7 @@ METAR_INTENSITY_THRESHOLD = {
 WA_WAWA = [
     (0,1,2,3,11,12,18,20,21,22,23,24,25,26), # no significant weather
     (4,5,10,27), # reduced visibility
-    (28,29), # 
+    (28,29), # sandstorm, duststorm, blowing snow
     (30,31,32,33,34,35), # fog
     (40,41,42), # precipitation
     (50,51,52,53,54,55,56), # drizzle
@@ -594,7 +594,7 @@ WA_WAWA = [
 WA_WW = [
     (0,1,2,3,13,14,15,16,18,19,76), # no significant weather
     (4,5,6,10,11,12,36,37,40), # reduced visibility
-    (7,8,9,30,31,32,33,34,35,38,39), # 
+    (7,8,9,30,31,32,33,34,35,38,39), # sandstorm, duststorm, blowing snow
     (28,41,42,43,44,45,46,47,48,49), # fog
     (24,), # precipitation
     (20,50,51,52,53,54,55,56,57), # drizzle
@@ -1232,8 +1232,19 @@ class PrecipThread(threading.Thread):
                 if ((last_el[1]-last_el[0])<=max(self.device_interval,self.error_limit) and
                     (wawa is not None or ww is not None)):
                     # The last value appears only once.
-                    if ((PrecipThread.is_el_precip(prev_el) and is_precipitation and not PrecipThread.is_el_precip(last_el)) or
-                        (not PrecipThread.is_el_precip(prev_el) and not is_precipitation and PrecipThread.is_el_precip(last_el))):
+                    if (
+                        (
+                            PrecipThread.is_el_precip(prev_el) and 
+                            is_precipitation and 
+                            not PrecipThread.is_el_precip(last_el)
+                        ) or
+                        (
+                            not PrecipThread.is_el_precip(prev_el) and 
+                            not is_precipitation and 
+                            PrecipThread.is_el_precip(last_el)
+                            and last_el[2]!=71 and last_el[3]!=71
+                        )
+                    ):
                         # If there is one single reading of precipitation
                         # between readings of no precipitation consider this
                         # reading erroneous and remove it. The same applies
@@ -1437,11 +1448,12 @@ class PrecipThread(threading.Thread):
                 # There are at least 3 elements in the list.
                 now_el = self.presentweather_list[-1]
                 last_el = self.presentweather_list[-2]
+                precip_duration = last_el[1]-last_el[4]
                 if (PrecipThread.is_el_precip(last_el) and
                     not PrecipThread.is_el_precip(now_el) and
                     (now_el[2] is not None or now_el[3] is not None) and
-                    (last_el[1]-last_el[4])<self.error_limit and
-                    (now_el[1]-now_el[0])>=(self.error_limit*2)
+                    precip_duration<self.error_limit and
+                    (now_el[1]-now_el[0])>=(precip_duration*2)
                 ):
                     # There was precipitation and now is not, and the
                     # precipitation lasted less than self.error_limit
@@ -1454,7 +1466,7 @@ class PrecipThread(threading.Thread):
                         # rain duration, now considered erroneous
                         rec = {
                             self.prefix+'RainDur':(
-                                last_el[4]-last_el[1],
+                                -precip_duration,
                                 'second',
                                 'group_deltatime'
                             )
@@ -1545,6 +1557,7 @@ class PrecipThread(threading.Thread):
                 wawa (int): postprocessed wawa code
                 start (int): `presentweatherStart`
                 elapsed (int): `presentweatherTime`
+                Wa_list (list): duration of weather kinds
         """
         # start timestamp and duration of the current weather condition
         # (We do not care about the intensity of precipitation here.)
@@ -2227,8 +2240,11 @@ class PrecipThread(threading.Thread):
         since = None
         elapsed = None
         pstart = None
+        precip_list = []
+        noprecip_list = []
         if self.presentweather_lock.acquire():
             try:
+                is_precip = False
                 # get the ww and wawa codes during the archive period
                 for el in self.presentweather_list:
                     if el[1]>timespan[0] and el[0]<=timespan[1]:
@@ -2237,11 +2253,51 @@ class PrecipThread(threading.Thread):
                             ww_list.append(el[2])
                         if el[3] is not None:
                             wawa_list.append(el[3])
+                    if el[2] is not None:
+                        # ww
+                        if el[2]>=50:
+                            # precipitation
+                            if is_precip:
+                                # this and the previous element precipitation
+                                precip_list[-1] += el[1]-el[0]
+                            else:
+                                # this element precipitation and last element not
+                                precip_list.append(el[1]-el[0])
+                        elif precip_list:
+                            # no preciptiation after at least one element of precipitation
+                            if is_precip:
+                                # last element precipitation and this element not
+                                # or first element at all
+                                noprecip_list.append(el[1]-el[0])
+                            else:
+                                noprecip_list[-1] += el[1]-el[0]
                 # get the postprocessed values if necessary
                 if self.set_weathercodes:
                     ww, wawa, since, elapsed, wa_list = self.presentweather(timespan[1])
             finally:
                 self.presentweather_lock.release()
+        # intermittent precipitation
+        if (precip_list and noprecip_list and 
+            max(precip_list)<600 and max(noprecip_list)<600 and
+            len(precip_list)>2 and len(noprecip_list)>1
+        ):
+            # Within the last hour there were at least 3 periods of
+            # precipitation and at least 2 periods of no precipitation.
+            # No period was longer than 10 minutes. This condition
+            # we will regard as intermittent precipitation.
+            # chronological order: precip_list[0], noprecip_list[0],
+            # precip_list[1], noprecip_list[1], ...
+            if ww in (51,53,55,61,63,65,71,73,75):
+                ww -= 1
+            if ww is not None and ww<50 and noprecip_list[-1]<=precip_list[-1]:
+                # TODO
+                if ww_list[-1] in (51,53,55,61,63,65,71,73,75):
+                    ww = ww_list[-1]-1
+                elif ww_list[-2] in (51,53,55,61,63,65,71,73,75):
+                    ww = ww_list[-2]-1
+            for idx,val in enumerate(ww_list):
+                if val in (51,53,55,61,63,65,71,73,75):
+                    ww_list[idx] -= 1
         # set the thread readings
         if self.prefix:
             record[self.prefix+'Ww'] = (max_ww(ww_list),'byte','group_wmo_ww')
@@ -2261,6 +2317,7 @@ class PrecipThread(threading.Thread):
             if elapsed is not None: 
                 record['presentweatherTime'] = (elapsed,'second','group_deltatime')
             record['precipitationStart'] = (pstart,'unix_epoch','group_time')
+            # W1, W2, Wa1, Wa2
             self.pastweather(record,ww,wawa,wa_list)
         return record
 
@@ -2355,6 +2412,62 @@ class PrecipThread(threading.Thread):
             loginf("thread '%s' stopped" % self.name)
 
 ##############################################################################
+#    Maintain frost indicator data                                           #
+##############################################################################
+
+class Freezing(list):
+
+    TIME_LENGTH = 7200
+
+    def state_at_timestamp(self, ts):
+        """ get frost indicator value for timestamp ts """
+        for ii in self:
+            if ts>ii[0]:
+                return ii[1]
+        return None
+    
+    def max_of_timespan(self, timespan):
+        """ get frost indicator value for timespan """
+        rtn = None
+        for ii in self:
+            if ii[0]>timespan[0] and ii[0]<=timespan[1]:
+                if ii[1]: return True
+                if ii[1] is not None: rtn = False
+        return rtn
+
+    def del_outdated(self, ts):
+        """ remove outdated elements """
+        start = ts-Freezing.TIME_LENGTH
+        while len(self)>0:
+            if self[0][0]>=start:
+                break
+            del self[0]
+    
+    def backfill_from_db(self, engine, binding, 
+                                          log_success=True, log_failure=True):
+        """ backfill frost indicator list from database """
+        if binding.lower()=='none': return
+        try:
+            dbm = engine.db_binder.get_manager(data_binding=binding,
+                                                     initialize=False)
+            start_vt, stop_vt, val_vt = weewx.xtypes.get_series(
+                'frostIndicator',
+                (time.time()-Freezing.TIME_LENGTH,time.time()),
+                dbm
+            )
+            for idx, val in enumerate(val_vt[0]):
+                start = start_vt[0][idx]
+                if val is not None: val = bool(int(val))
+                logdbg("frost indicator list [%s] = (%s,%s)" % (idx,start,val))
+                self.append((start,val))
+            if log_success:
+                loginf("%s elements backfilled into frost indicator list" % len(self))
+        except (LookupError,ValueError,TypeError,AttributeError,weewx.UnknownType) as e:
+            if log_failure:
+                logerr("could not backfill frost indicator list from database: %s %s" % (e.__class__.__name__,e))
+
+
+##############################################################################
 #    Service to receive and process weather condition data                   #
 ##############################################################################
 
@@ -2416,6 +2529,7 @@ class PrecipData(StdService):
                     if self._create_thread(name,dev_dict):
                         ct += 1
             if ct>0 and __name__!='__main__':
+                #self.bind(weewx.STARTUP,self.startup)
                 self.bind(weewx.NEW_LOOP_PACKET, self.new_loop_packet)
                 self.bind(weewx.END_ARCHIVE_PERIOD, self.end_archive_period)
                 self.bind(weewx.NEW_ARCHIVE_RECORD, self.new_archive_record)
@@ -2438,7 +2552,15 @@ class PrecipData(StdService):
         self.soil5cm_C = None
         self.windGust = None
         self.windGust_ts = 0
-        self.is_freezing = None
+        self.is_freezing = Freezing()
+        self.is_freezing.backfill_from_db(
+            engine,
+            site_dict.get('data_binding','precip_binding'),
+            log_success=self.log_success,
+            log_failure=self.log_failure
+        )
+        #self.engine = engine
+        #self.data_binding = site_dict.get('data_binding','precip_binding')
         # Initialize variables for AWEKAS support
         self.last_awekas = None
         self.current_awekas = None
@@ -2670,7 +2792,7 @@ class PrecipData(StdService):
                 pass
         # remove XType extension
         weewx.xtypes.xtypes.remove(self.xtype)
-        
+    
     def _process_data(self, thread_name):
         """ Get and process data from the threads. """
         AVG_GROUPS = ('group_temperature','group_db','group_distance','group_volt')
@@ -2687,6 +2809,7 @@ class PrecipData(StdService):
                 # no more packets available so far
                 break
             else:
+                """
                 try:
                     self.presentweather(data[2],'ww',reply[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
@@ -2695,6 +2818,7 @@ class PrecipData(StdService):
                     self.presentweather(data[2],'wawa',reply[1])
                 except (LookupError,ValueError,TypeError,ArithmeticError):
                     pass
+                """
                 # accumulate readings that arrived since the last LOOP
                 # packet
                 for key,val in reply[1].items():
@@ -2865,7 +2989,7 @@ class PrecipData(StdService):
         except (TypeError,ValueError,ArithmeticError):
             # unexpected error is considered failure, too
             return None
-
+    
     def presentweather(self, ts, obstype, record):
         """ Postprocess ww and wawa. 
         
@@ -2880,9 +3004,9 @@ class PrecipData(StdService):
         # lightning strike appeared more than 10 minutes ago.
         if self.lightning_strike_ts<(ts-600):
             self.lightning_strike_ts = 0
-        val = record[obstype]
+        val = weewx.units.as_value_tuple(record,obstype)
         val_val = val[0]
-        if obstype=='ww' and val[2]=='group_wmo_ww':
+        if obstype in ('ww','presentweatherWw') and val[2]=='group_wmo_ww':
             # Note:
             # - 17 preceeds 20 to 49
             # - 28 preceeds 40
@@ -2897,7 +3021,7 @@ class PrecipData(StdService):
                 elif val_val<17 or 20<=val_val<=49:
                     val_val = 17
             # freezing rain or drizzle
-            if self.is_freezing:
+            if self.is_freezing.state_at_timestamp(ts):
                 if val_val in (50,51):
                     val_val = 56
                 elif val_val in (52,53,54,55):
@@ -2906,14 +3030,18 @@ class PrecipData(StdService):
                     val_val = 66
                 elif val_val in (62,63,64,65,59):
                     val_val = 67
-                elif val_val in (20,21):
+            if val_val in (20,21):
+                precip_time_end = ts-record.get('presentweatherTime',0)
+                if self.is_freezing.max_of_timespan((precip_time_end-3600,precip_time_end)):
                     val_val = 24
             # wind gust
             if val_val<18 and self.windGust:
                 val_val = 18
             # new value
-            record[obstype] = (val_val,val[1],val[2])
-        elif obstype=='wawa' and val[2]=='group_wmo_wawa':
+            record[obstype] = val_val
+            if val[0]!=val_val:
+                loginf("PrecipData.presentweather() %s: %s to %s" % (obstype,val[0],val_val))
+        elif obstype in ('wawa','presentweatherWawa') and val[2]=='group_wmo_wawa':
             # thunderstorm
             if self.lightning_strike_ts:
                 if val_val==89:
@@ -2923,20 +3051,24 @@ class PrecipData(StdService):
                 else:
                     val_val = 90
             # freezing rain or drizzle
-            if self.is_freezing:
+            if self.is_freezing.state_at_timestamp(ts):
                 if val_val in (51,52,53,61,62,63):
                     val_val += 3
                 elif val_val==57:
                     val_val = 64
                 elif val_val==58:
                     val_val = 66
-                elif val_val in (21,22,23):
+            if val_val in (21,22,23):
+                precip_time_end = ts-record.get('presentweatherTime',0)
+                if self.is_freezing.max_of_timespan((precip_time_end-3600,precip_time_end)):
                     val_val = 25
             # wind gust
             if val_val<18 and self.windGust:
                 val_val = 18
             # new value
-            record[obstype] = (val_val,val[1],val[2])
+            record[obstype] = val_val
+            if val[0]!=val_val:
+                loginf("PrecipData.presentweather() %s: %s to %s" % (obstype,val[0],val_val))
     
     
     def new_loop_packet(self, event):
@@ -2958,7 +3090,7 @@ class PrecipData(StdService):
                 try:
                     if 'AWEKASpresentweather' in reply:
                         new_awekas = reply.pop('AWEKASpresentweather')[0]
-                        if self.is_freezing and new_awekas in (8,9,10,11,12,23):
+                        if self.is_freezing.state_at_timestamp(timestamp) and new_awekas in (8,9,10,11,12,23):
                             # freezing precipitation
                             new_awekas = 21
                         awekas1 = AWEKAS[self.current_awekas][2] if self.current_awekas is not None else -1
@@ -3063,14 +3195,6 @@ class PrecipData(StdService):
             try:
                 reply = self.threads[thread_name]['thread'].get_archive_record(timespan)
                 if reply:
-                    try:
-                        self.presentweather(ts,'ww',reply)
-                    except (LookupError,ValueError,TypeError,ArithmeticError):
-                        pass
-                    try:
-                        self.presentweather(ts,'wawa',reply)
-                    except (LookupError,ValueError,TypeError,ArithmeticError):
-                        pass
                     data = self._to_weewx(thread_name,reply,event.record['usUnits'])
                     event.record.update(data)
                     logdbg(data)
@@ -3103,22 +3227,36 @@ class PrecipData(StdService):
         # frost indicator
         if self.freezing_detection_source.lower()=='software':
             # calculated by this extension
-            self.is_freezing = self.frostindicator()
-            event.record['frostIndicator'] = weeutil.weeutil.to_int(self.is_freezing)
+            is_freezing = self.frostindicator()
+            self.is_freezing.append((timespan[0],is_freezing))
+            event.record['frostIndicator'] = weeutil.weeutil.to_int(is_freezing)
         elif self.freezing_detection_source.lower()=='hardware':
             # provided by some other source
-            self.is_freezing = event.record.get('frostIndicator')
+            try:
+                self.is_freezing.append((timespan[0],bool(int(event.record.get('frostIndicator')))))
+            except (TypeError,ValueError):
+                pass
         elif self.freezing_detection_source.lower()=='none':
             # freezing precipitation detection not performed
-            self.is_freezing = None
+            self.is_freezing = Freezing()
         else:
             # from some device handled by this extension, set within
             # new_loop_packet() while handling the appropriate thread,
             # nothing to do here
             pass
+        self.is_freezing.del_outdated(ts)
         # debugging output
         if self.debug>1:
             logdbg('temp5cm %s°C, temp2m %s°C, soil5cm %s°C isfreezing %s' % (self.temp5cm_C,self.temp2m_C,self.soil5cm_C,self.is_freezing))
+        # postprocess present weather
+        # `ww`, `wawa`: most significant weather during the archive interval
+        # `presentweatherWw`, `presentweatherWawa`: weather at the end of the archive interval
+        for obs in ('ww','wawa','presentweatherWw','presentweatherWawa'):
+            try:
+                self.presentweather(ts,obs,event.record)
+            except (LookupError,ValueError,TypeError,ArithmeticError) as e:
+                if self.log_failure:
+                    logerr("error postprocessing '%s': %s %s" % (obs,e.__class__.__name__,e))
         # AWEKAS
         if self.old_awekas!=self.last_awekas:
             event.record['AWEKASpresentweather'] = self.old_awekas
