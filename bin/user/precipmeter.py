@@ -1441,14 +1441,17 @@ class PrecipThread(threading.Thread):
             print('presentweather_list',self.presentweather_list)
         return precipstart
     
-    def check_erroneous_precipitation(self):
+    def check_erroneous_precipitation(self, ts):
         """ check for erroneous readings of precipitation """
         try:
             if len(self.presentweather_list)>=3:
                 # There are at least 3 elements in the list.
                 now_el = self.presentweather_list[-1]
                 last_el = self.presentweather_list[-2]
-                precip_duration = last_el[1]-last_el[4]
+                if last_el[4] is not None:
+                    precip_duration = last_el[1]-last_el[4]
+                else:
+                    precip_duration = 0
                 if (PrecipThread.is_el_precip(last_el) and
                     not PrecipThread.is_el_precip(now_el) and
                     (now_el[2] is not None or now_el[3] is not None) and
@@ -2092,7 +2095,7 @@ class PrecipThread(threading.Thread):
         if self.presentweather_lock.acquire():
             try:
                 pstart = self.update_presentweather_list(ts, ww, wawa, metar, p_abs, p_rate)
-                self.check_erroneous_precipitation()
+                self.check_erroneous_precipitation(ts)
                 if record:
                     if self.prefix:
                         # history of present weather codes of the last hour
@@ -2263,6 +2266,7 @@ class PrecipThread(threading.Thread):
                             else:
                                 # this element precipitation and last element not
                                 precip_list.append(el[1]-el[0])
+                            is_precip = True
                         elif precip_list:
                             # no preciptiation after at least one element of precipitation
                             if is_precip:
@@ -2271,6 +2275,7 @@ class PrecipThread(threading.Thread):
                                 noprecip_list.append(el[1]-el[0])
                             else:
                                 noprecip_list[-1] += el[1]-el[0]
+                            is_precip = False
                 # get the postprocessed values if necessary
                 if self.set_weathercodes:
                     ww, wawa, since, elapsed, wa_list = self.presentweather(timespan[1])
